@@ -6,6 +6,7 @@ from typing import Any
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
 TICKETS_FILE = BASE_DIR / "tickets.json"
+WARNINGS_FILE = BASE_DIR / "warnings.json"
 
 
 def load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
