@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from storage import CONFIG_FILE, TICKETS_FILE, load_json, save_json
+from storage import CONFIG_FILE, TICKETS_FILE, WARNINGS_FILE, load_json, save_json
 from tickets import TICKET_TYPES, build_ticket_panel_embed, slugify_name
 
 
@@ -105,6 +105,7 @@ class YishiBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.config_data = load_json(CONFIG_FILE, {})
         self.ticket_data = load_json(TICKETS_FILE, {})
+        self.warning_data = load_json(WARNINGS_FILE, {})
         self.guild_sync_done = False
 
     async def setup_hook(self) -> None:
@@ -142,6 +143,16 @@ class YishiBot(commands.Bot):
 
     def save_tickets(self) -> None:
         save_json(TICKETS_FILE, self.ticket_data)
+
+    def get_warning_store(self, guild_id: int) -> dict[str, Any]:
+        key = str(guild_id)
+        if key not in self.warning_data:
+            self.warning_data[key] = {}
+            self.save_warnings()
+        return self.warning_data[key]
+
+    def save_warnings(self) -> None:
+        save_json(WARNINGS_FILE, self.warning_data)
 
     def get_open_tickets_for_user(self, guild_id: int, user_id: int) -> list[dict[str, Any]]:
         store = self.get_ticket_store(guild_id)
@@ -435,12 +446,16 @@ def register_commands(bot: YishiBot) -> None:
         embed.add_field(name="/paiement", value="Affiche les moyens de paiement du shop.", inline=False)
         embed.add_field(name="/dire", value="Fait parler le bot.", inline=False)
         embed.add_field(name="/envoyer_message", value="Envoie un message dans le salon de ton choix.", inline=False)
+        embed.add_field(name="/annonce", value="Envoie une annonce en embed dans un salon.", inline=False)
         embed.add_field(name="/userinfo", value="Affiche les informations d'un membre.", inline=False)
         embed.add_field(name="/clear", value="Supprime des messages.", inline=False)
         embed.add_field(name="/kick", value="Expulse un membre.", inline=False)
         embed.add_field(name="/ban", value="Bannit un membre.", inline=False)
         embed.add_field(name="/mute", value="Timeout un membre.", inline=False)
         embed.add_field(name="/unmute", value="Retire le timeout d'un membre.", inline=False)
+        embed.add_field(name="/warn", value="Avertit un membre avec une raison.", inline=False)
+        embed.add_field(name="/list_warn", value="Affiche les avertissements d'un membre.", inline=False)
+        embed.add_field(name="/add_membre_ticket", value="Ajoute un membre au ticket actuel.", inline=False)
         embed.add_field(name="/config_role_staff", value="Definit le role staff des tickets ouverts.", inline=False)
         embed.add_field(name="/config_role_archive", value="Definit le role staff superieur des archives.", inline=False)
         embed.add_field(name="/config_categorie_tickets", value="Definit la categorie des tickets ouverts.", inline=False)
@@ -494,6 +509,31 @@ def register_commands(bot: YishiBot) -> None:
             ephemeral=True,
         )
 
+    @bot.tree.command(name="annonce", description="Envoie une annonce en embed dans le salon de ton choix")
+    @app_commands.describe(
+        salon="Le salon dans lequel envoyer l'annonce",
+        titre="Le titre de l'annonce",
+        message="Le texte de l'annonce",
+    )
+    @app_commands.default_permissions(manage_messages=True)
+    async def annonce(
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+        titre: str,
+        message: str,
+    ) -> None:
+        embed = discord.Embed(
+            title=titre,
+            description=message,
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text=f"Annonce par {interaction.user}")
+        await salon.send(embed=embed)
+        await interaction.response.send_message(
+            f"Annonce envoyee dans {salon.mention}.",
+            ephemeral=True,
+        )
+
     @bot.tree.command(name="userinfo", description="Affiche les informations d'un membre")
     @app_commands.describe(membre="Le membre a afficher")
     async def userinfo(
@@ -527,6 +567,42 @@ def register_commands(bot: YishiBot) -> None:
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=nombre)
         await interaction.followup.send(f"{len(deleted)} message(s) supprime(s).", ephemeral=True)
+
+    @bot.tree.command(name="add_membre_ticket", description="Ajoute un membre au ticket actuel")
+    @app_commands.describe(membre="Le membre a ajouter au ticket")
+    @app_commands.default_permissions(manage_channels=True)
+    async def add_membre_ticket(
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None or interaction.channel is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        store = bot.get_ticket_store(interaction.guild.id)
+        ticket = store["channels"].get(str(interaction.channel.id))
+        if ticket is None:
+            await interaction.response.send_message(
+                "Cette commande doit etre utilisee dans un ticket.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.channel.set_permissions(
+            membre,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+        )
+        await interaction.response.send_message(
+            f"{membre.mention} a ete ajoute au ticket.",
+            ephemeral=True,
+        )
+        await interaction.channel.send(f"{membre.mention} a ete ajoute au ticket par {interaction.user.mention}.")
 
     @bot.tree.command(name="kick", description="Expulse un membre du serveur")
     @app_commands.describe(membre="Le membre a expulser", raison="La raison du kick")
@@ -617,6 +693,83 @@ def register_commands(bot: YishiBot) -> None:
             return
         await membre.timeout(None, reason=raison)
         await interaction.response.send_message(f"{membre} n'est plus mute. Raison : {raison}")
+
+    @bot.tree.command(name="warn", description="Avertit un membre avec une raison")
+    @app_commands.describe(membre="Le membre a avertir", raison="La raison de l'avertissement")
+    @app_commands.default_permissions(moderate_members=True)
+    async def warn(
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        raison: str,
+    ) -> None:
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        bot_member = interaction.guild.me
+        if bot_member is None:
+            await interaction.response.send_message("Impossible de verifier mes permissions.", ephemeral=True)
+            return
+
+        error = can_moderate(interaction.user, membre, bot_member)
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
+            return
+
+        store = bot.get_warning_store(interaction.guild.id)
+        member_key = str(membre.id)
+        if member_key not in store:
+            store[member_key] = []
+
+        store[member_key].append(
+            {
+                "reason": raison,
+                "moderator_id": interaction.user.id,
+                "moderator_name": str(interaction.user),
+                "created_at": discord.utils.utcnow().strftime("%d/%m/%Y %H:%M"),
+            }
+        )
+        bot.save_warnings()
+
+        await interaction.response.send_message(
+            f"{membre.mention} a recu un avertissement. Raison : {raison}"
+        )
+
+    @bot.tree.command(name="list_warn", description="Affiche les avertissements d'un membre")
+    @app_commands.describe(membre="Le membre dont tu veux voir les avertissements")
+    @app_commands.default_permissions(moderate_members=True)
+    async def list_warn(
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        store = bot.get_warning_store(interaction.guild.id)
+        warnings = store.get(str(membre.id), [])
+        if not warnings:
+            await interaction.response.send_message(
+                f"{membre.mention} n'a aucun avertissement.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"Avertissements de {membre}",
+            color=discord.Color.orange(),
+        )
+        for index, warning in enumerate(warnings, start=1):
+            embed.add_field(
+                name=f"Warn #{index}",
+                value=(
+                    f"Raison : {warning['reason']}\n"
+                    f"Staff : {warning['moderator_name']}\n"
+                    f"Date : {warning['created_at']}"
+                ),
+                inline=False,
+            )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @bot.tree.command(name="config_role_staff", description="Definit le role staff pour les tickets ouverts")
     @app_commands.describe(role="Role qui verra les tickets ouverts")
