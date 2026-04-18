@@ -432,6 +432,7 @@ def register_commands(bot: YishiBot) -> None:
         embed = discord.Embed(title="Commandes", color=discord.Color.blurple())
         embed.add_field(name="/aide", value="Affiche cette aide.", inline=False)
         embed.add_field(name="/ping", value="Teste la latence du bot.", inline=False)
+        embed.add_field(name="/paiement", value="Affiche les moyens de paiement du shop.", inline=False)
         embed.add_field(name="/dire", value="Fait parler le bot.", inline=False)
         embed.add_field(name="/envoyer_message", value="Envoie un message dans le salon de ton choix.", inline=False)
         embed.add_field(name="/userinfo", value="Affiche les informations d'un membre.", inline=False)
@@ -454,6 +455,17 @@ def register_commands(bot: YishiBot) -> None:
     @bot.tree.command(name="ping", description="Teste la latence du bot")
     async def ping(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(f"Pong ! {round(bot.latency * 1000)} ms")
+
+    @bot.tree.command(name="paiement", description="Affiche les moyens de paiement du shop")
+    async def paiement(interaction: discord.Interaction) -> None:
+        embed = discord.Embed(
+            title="Moyens de paiement",
+            description="Voici les moyens de paiement disponibles pour Yishi's Shop.",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="PayPal", value="YishisShops", inline=False)
+        embed.add_field(name="Revolut", value="https://revolut.me/souillarda", inline=False)
+        await interaction.response.send_message(embed=embed)
 
     @bot.tree.command(name="dire", description="Fait parler le bot")
     @app_commands.describe(message="Le message que le bot doit envoyer")
