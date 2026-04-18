@@ -9,6 +9,12 @@ from storage import CONFIG_FILE, TICKETS_FILE, WARNINGS_FILE, load_json, save_js
 from tickets import TICKET_TYPES, build_ticket_panel_embed, slugify_name
 
 
+AUTO_STAFF_ROLE_NAME = "👑・𝐒taff"
+AUTO_ARCHIVE_ROLE_NAME = "👑・𝐅ondateur"
+AUTO_TICKET_CATEGORY_NAME = "Tickets"
+AUTO_ARCHIVE_CATEGORY_NAME = "Ticket-Close"
+
+
 def can_moderate(
     actor: discord.Member,
     target: discord.Member,
@@ -153,6 +159,51 @@ class YishiBot(commands.Bot):
 
     def save_warnings(self) -> None:
         save_json(WARNINGS_FILE, self.warning_data)
+
+    async def ensure_ticket_config(self, guild: discord.Guild) -> None:
+        config = self.get_guild_config(guild.id)
+
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        if staff_role is None:
+            staff_role = discord.utils.get(guild.roles, name=AUTO_STAFF_ROLE_NAME)
+            if staff_role is None:
+                staff_role = await guild.create_role(
+                    name=AUTO_STAFF_ROLE_NAME,
+                    reason="Auto configuration du systeme de tickets",
+                )
+            config["staff_role_id"] = staff_role.id
+
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        if archive_role is None:
+            archive_role = discord.utils.get(guild.roles, name=AUTO_ARCHIVE_ROLE_NAME)
+            if archive_role is None:
+                archive_role = await guild.create_role(
+                    name=AUTO_ARCHIVE_ROLE_NAME,
+                    reason="Auto configuration du systeme de tickets",
+                )
+            config["archive_role_id"] = archive_role.id
+
+        ticket_category = guild.get_channel(config["ticket_category_id"]) if config["ticket_category_id"] else None
+        if not isinstance(ticket_category, discord.CategoryChannel):
+            ticket_category = discord.utils.get(guild.categories, name=AUTO_TICKET_CATEGORY_NAME)
+            if ticket_category is None:
+                ticket_category = await guild.create_category(
+                    AUTO_TICKET_CATEGORY_NAME,
+                    reason="Auto configuration du systeme de tickets",
+                )
+            config["ticket_category_id"] = ticket_category.id
+
+        archive_category = guild.get_channel(config["archive_category_id"]) if config["archive_category_id"] else None
+        if not isinstance(archive_category, discord.CategoryChannel):
+            archive_category = discord.utils.get(guild.categories, name=AUTO_ARCHIVE_CATEGORY_NAME)
+            if archive_category is None:
+                archive_category = await guild.create_category(
+                    AUTO_ARCHIVE_CATEGORY_NAME,
+                    reason="Auto configuration du systeme de tickets",
+                )
+            config["archive_category_id"] = archive_category.id
+
+        self.save_config()
 
     def get_open_tickets_for_user(self, guild_id: int, user_id: int) -> list[dict[str, Any]]:
         store = self.get_ticket_store(guild_id)
@@ -383,6 +434,7 @@ def register_commands(bot: YishiBot) -> None:
     async def on_ready() -> None:
         if not bot.guild_sync_done:
             for guild in bot.guilds:
+                await bot.ensure_ticket_config(guild)
                 bot.tree.copy_global_to(guild=guild)
                 await bot.tree.sync(guild=guild)
             bot.guild_sync_done = True
