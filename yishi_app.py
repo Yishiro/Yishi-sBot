@@ -1,3 +1,6 @@
+import asyncio
+import random
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -5,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from storage import CONFIG_FILE, TICKETS_FILE, WARNINGS_FILE, load_json, save_json
+from storage import CONFIG_FILE, GIVEAWAYS_FILE, INVITES_FILE, TICKETS_FILE, WARNINGS_FILE, load_json, save_json
 from tickets import TICKET_TYPES, build_ticket_panel_embed, slugify_name
 
 
@@ -13,6 +16,24 @@ AUTO_STAFF_ROLE_NAME = "👑・𝐒taff"
 AUTO_ARCHIVE_ROLE_NAME = "👑・𝐅ondateur"
 AUTO_TICKET_CATEGORY_NAME = "Tickets"
 AUTO_ARCHIVE_CATEGORY_NAME = "Ticket-Close"
+
+
+def parse_duration(duration: str) -> int | None:
+    match = re.fullmatch(r"(\d+)([mhd])", duration.lower().strip())
+    if match is None:
+        return None
+
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if amount <= 0:
+        return None
+    if unit == "m":
+        return amount * 60
+    if unit == "h":
+        return amount * 60 * 60
+    if unit == "d":
+        return amount * 24 * 60 * 60
+    return None
 
 
 def can_moderate(
@@ -103,6 +124,26 @@ class TicketArchiveView(discord.ui.View):
         self.add_item(TicketReopenButton(bot))
 
 
+class GiveawayJoinButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            label="Participer",
+            style=discord.ButtonStyle.success,
+            emoji="🎉",
+            custom_id="giveaway_join_button",
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.join_giveaway(interaction)
+
+
+class GiveawayView(discord.ui.View):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(timeout=None)
+        self.add_item(GiveawayJoinButton(bot))
+
+
 class YishiBot(commands.Bot):
     def __init__(self) -> None:
         intents = discord.Intents.default()
@@ -112,12 +153,17 @@ class YishiBot(commands.Bot):
         self.config_data = load_json(CONFIG_FILE, {})
         self.ticket_data = load_json(TICKETS_FILE, {})
         self.warning_data = load_json(WARNINGS_FILE, {})
+        self.invite_data = load_json(INVITES_FILE, {})
+        self.giveaway_data = load_json(GIVEAWAYS_FILE, {})
+        self.invite_cache: dict[int, dict[str, int]] = {}
+        self.giveaway_tasks: dict[str, asyncio.Task] = {}
         self.guild_sync_done = False
 
     async def setup_hook(self) -> None:
         self.add_view(TicketPanelView(self))
         self.add_view(TicketCloseView(self))
         self.add_view(TicketArchiveView(self))
+        self.add_view(GiveawayView(self))
         register_commands(self)
         print("Preparation des commandes slash terminee.")
 
@@ -159,6 +205,168 @@ class YishiBot(commands.Bot):
 
     def save_warnings(self) -> None:
         save_json(WARNINGS_FILE, self.warning_data)
+
+    def get_invite_store(self, guild_id: int) -> dict[str, Any]:
+        key = str(guild_id)
+        if key not in self.invite_data:
+            self.invite_data[key] = {}
+            self.save_invites()
+        return self.invite_data[key]
+
+    def save_invites(self) -> None:
+        save_json(INVITES_FILE, self.invite_data)
+
+    def get_giveaway_store(self, guild_id: int) -> dict[str, Any]:
+        key = str(guild_id)
+        if key not in self.giveaway_data:
+            self.giveaway_data[key] = {}
+            self.save_giveaways()
+        return self.giveaway_data[key]
+
+    def save_giveaways(self) -> None:
+        save_json(GIVEAWAYS_FILE, self.giveaway_data)
+
+    def get_invite_count(self, guild_id: int, user_id: int) -> int:
+        store = self.get_invite_store(guild_id)
+        return int(store.get(str(user_id), 0))
+
+    async def cache_invites(self, guild: discord.Guild) -> None:
+        try:
+            invites = await guild.invites()
+        except discord.Forbidden:
+            self.invite_cache[guild.id] = {}
+            return
+        self.invite_cache[guild.id] = {invite.code: invite.uses or 0 for invite in invites}
+
+    async def track_member_invite(self, member: discord.Member) -> discord.Member | None:
+        before = self.invite_cache.get(member.guild.id, {})
+        try:
+            invites = await member.guild.invites()
+        except discord.Forbidden:
+            return None
+
+        inviter = None
+        new_cache = {invite.code: invite.uses or 0 for invite in invites}
+        for invite in invites:
+            old_uses = before.get(invite.code, 0)
+            new_uses = invite.uses or 0
+            if new_uses > old_uses and invite.inviter is not None:
+                inviter = invite.inviter
+                break
+
+        self.invite_cache[member.guild.id] = new_cache
+        if inviter is None:
+            return None
+
+        store = self.get_invite_store(member.guild.id)
+        inviter_key = str(inviter.id)
+        store[inviter_key] = int(store.get(inviter_key, 0)) + 1
+        self.save_invites()
+        return member.guild.get_member(inviter.id)
+
+    async def schedule_existing_giveaways(self) -> None:
+        for guild_id, giveaways in self.giveaway_data.items():
+            for message_id, giveaway in giveaways.items():
+                if giveaway.get("status") == "active":
+                    self.schedule_giveaway_end(int(guild_id), int(message_id), int(giveaway["end_at"]))
+
+    def schedule_giveaway_end(self, guild_id: int, message_id: int, end_at: int) -> None:
+        task_key = f"{guild_id}:{message_id}"
+        if task_key in self.giveaway_tasks:
+            self.giveaway_tasks[task_key].cancel()
+        self.giveaway_tasks[task_key] = asyncio.create_task(self._giveaway_end_task(guild_id, message_id, end_at))
+
+    async def _giveaway_end_task(self, guild_id: int, message_id: int, end_at: int) -> None:
+        await asyncio.sleep(max(0, end_at - int(discord.utils.utcnow().timestamp())))
+        await self.finish_giveaway(guild_id, message_id, ended_by=None)
+
+    async def join_giveaway(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or interaction.message is None:
+            await interaction.response.send_message("Impossible de participer ici.", ephemeral=True)
+            return
+
+        store = self.get_giveaway_store(interaction.guild.id)
+        giveaway = store.get(str(interaction.message.id))
+        if giveaway is None or giveaway.get("status") != "active":
+            await interaction.response.send_message("Ce giveaway n'est plus actif.", ephemeral=True)
+            return
+
+        user_id = interaction.user.id
+        participants = giveaway.setdefault("participants", [])
+        if user_id in participants:
+            await interaction.response.send_message("Tu participes deja a ce giveaway.", ephemeral=True)
+            return
+
+        min_invites = int(giveaway.get("min_invites", 0))
+        invite_count = self.get_invite_count(interaction.guild.id, user_id)
+        if invite_count < min_invites:
+            await interaction.response.send_message(
+                f"Tu dois avoir au moins {min_invites} invitation(s) pour participer. Tu en as {invite_count}.",
+                ephemeral=True,
+            )
+            return
+
+        participants.append(user_id)
+        self.save_giveaways()
+
+        await interaction.response.send_message("Participation enregistree.", ephemeral=True)
+        try:
+            await interaction.user.send(f"Tu participes au giveaway : {giveaway['prize']}")
+        except discord.Forbidden:
+            pass
+
+    async def finish_giveaway(self, guild_id: int, message_id: int, ended_by: discord.Member | None) -> None:
+        store = self.get_giveaway_store(guild_id)
+        giveaway = store.get(str(message_id))
+        if giveaway is None or giveaway.get("status") != "active":
+            return
+
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            return
+
+        channel = guild.get_channel(giveaway["channel_id"])
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        participants = list(dict.fromkeys(giveaway.get("participants", [])))
+        valid_participants = [
+            user_id
+            for user_id in participants
+            if self.get_invite_count(guild_id, user_id) >= int(giveaway.get("min_invites", 0))
+        ]
+        winners_count = min(int(giveaway["winners_count"]), len(valid_participants))
+        winners = random.sample(valid_participants, winners_count) if winners_count > 0 else []
+
+        giveaway["status"] = "ended"
+        giveaway["winners"] = winners
+        self.save_giveaways()
+
+        mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
+        if mentions:
+            await channel.send(f"🎉 Giveaway termine ! Gagnant(s) pour **{giveaway['prize']}** : {mentions}")
+        else:
+            await channel.send(f"🎉 Giveaway termine pour **{giveaway['prize']}**, mais aucun participant valide n'a ete trouve.")
+
+    async def reroll_giveaway(self, guild_id: int, message_id: int) -> list[int]:
+        store = self.get_giveaway_store(guild_id)
+        giveaway = store.get(str(message_id))
+        if giveaway is None:
+            return []
+
+        participants = list(dict.fromkeys(giveaway.get("participants", [])))
+        previous_winners = set(giveaway.get("winners", []))
+        valid_participants = [
+            user_id
+            for user_id in participants
+            if user_id not in previous_winners
+            and self.get_invite_count(guild_id, user_id) >= int(giveaway.get("min_invites", 0))
+        ]
+        winners_count = min(int(giveaway["winners_count"]), len(valid_participants))
+        winners = random.sample(valid_participants, winners_count) if winners_count > 0 else []
+        giveaway["winners"] = winners
+        self.save_giveaways()
+        return winners
 
     async def ensure_ticket_config(self, guild: discord.Guild) -> None:
         config = self.get_guild_config(guild.id)
@@ -435,8 +643,10 @@ def register_commands(bot: YishiBot) -> None:
         if not bot.guild_sync_done:
             for guild in bot.guilds:
                 await bot.ensure_ticket_config(guild)
+                await bot.cache_invites(guild)
                 bot.tree.copy_global_to(guild=guild)
                 await bot.tree.sync(guild=guild)
+            await bot.schedule_existing_giveaways()
             bot.guild_sync_done = True
         print(f"Bot connecte en tant que {bot.user}")
 
@@ -444,6 +654,7 @@ def register_commands(bot: YishiBot) -> None:
     async def on_member_join(member: discord.Member) -> None:
         config = bot.get_guild_config(member.guild.id)
         welcome_channel = member.guild.get_channel(config["welcome_channel_id"]) if config["welcome_channel_id"] else member.guild.system_channel
+        inviter = await bot.track_member_invite(member)
         if isinstance(welcome_channel, discord.TextChannel):
             await welcome_channel.send(
                 "🌙 Bienvenue sur Yishi’s Shop, "
@@ -457,6 +668,10 @@ def register_commands(bot: YishiBot) -> None:
                 "📩 Besoin d’aide ? Le staff est la pour toi.\n"
                 "Profite bien du serveur et merci de ta confiance."
             )
+            if inviter is not None:
+                await welcome_channel.send(f"{member.mention} a ete invite par {inviter.mention}.")
+            else:
+                await welcome_channel.send(f"Impossible de detecter qui a invite {member.mention}.")
 
     @bot.event
     async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
@@ -496,6 +711,7 @@ def register_commands(bot: YishiBot) -> None:
         embed.add_field(name="/aide", value="Affiche cette aide.", inline=False)
         embed.add_field(name="/ping", value="Teste la latence du bot.", inline=False)
         embed.add_field(name="/paiement", value="Affiche les moyens de paiement du shop.", inline=False)
+        embed.add_field(name="/invites", value="Affiche ton nombre d'invitations.", inline=False)
         embed.add_field(name="/dire", value="Fait parler le bot.", inline=False)
         embed.add_field(name="/envoyer_message", value="Envoie un message dans le salon de ton choix.", inline=False)
         embed.add_field(name="/annonce", value="Envoie une annonce en embed dans un salon.", inline=False)
@@ -508,6 +724,9 @@ def register_commands(bot: YishiBot) -> None:
         embed.add_field(name="/warn", value="Avertit un membre avec une raison.", inline=False)
         embed.add_field(name="/list_warn", value="Affiche les avertissements d'un membre.", inline=False)
         embed.add_field(name="/add_membre_ticket", value="Ajoute un membre au ticket actuel.", inline=False)
+        embed.add_field(name="/giveaway_create", value="Cree un giveaway.", inline=False)
+        embed.add_field(name="/giveaway_end", value="Termine un giveaway.", inline=False)
+        embed.add_field(name="/giveaway_reroll", value="Retire un nouveau gagnant.", inline=False)
         embed.add_field(name="/config_role_staff", value="Definit le role staff des tickets ouverts.", inline=False)
         embed.add_field(name="/config_role_archive", value="Definit le role staff superieur des archives.", inline=False)
         embed.add_field(name="/config_categorie_tickets", value="Definit la categorie des tickets ouverts.", inline=False)
@@ -533,6 +752,23 @@ def register_commands(bot: YishiBot) -> None:
         embed.add_field(name="PayPal", value="YishisShops", inline=False)
         embed.add_field(name="Revolut", value="https://revolut.me/souillarda", inline=False)
         await interaction.response.send_message(embed=embed)
+
+    @bot.tree.command(name="invites", description="Affiche ton nombre d'invitations")
+    @app_commands.describe(membre="Membre dont tu veux voir les invitations")
+    async def invites(
+        interaction: discord.Interaction,
+        membre: discord.Member | None = None,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        target = membre or interaction.user
+        count = bot.get_invite_count(interaction.guild.id, target.id)
+        await interaction.response.send_message(
+            f"{target.mention} a {count} invitation(s).",
+            ephemeral=True,
+        )
 
     @bot.tree.command(name="dire", description="Fait parler le bot")
     @app_commands.describe(message="Le message que le bot doit envoyer")
@@ -822,6 +1058,105 @@ def register_commands(bot: YishiBot) -> None:
                 inline=False,
             )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @bot.tree.command(name="giveaway_create", description="Cree un giveaway")
+    @app_commands.describe(
+        salon="Salon dans lequel envoyer le giveaway",
+        prix="Prix du giveaway",
+        duree="Duree du giveaway. Exemple : 10m, 2h, 1d",
+        gagnants="Nombre de gagnants",
+        invitations_minimum="Nombre minimum d'invitations pour participer",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_create(
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+        prix: str,
+        duree: str,
+        gagnants: app_commands.Range[int, 1, 20],
+        invitations_minimum: app_commands.Range[int, 0, 1000],
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        seconds = parse_duration(duree)
+        if seconds is None:
+            await interaction.response.send_message(
+                "Duree invalide. Utilise le format `10m`, `2h` ou `1d`.",
+                ephemeral=True,
+            )
+            return
+
+        end_at = int(discord.utils.utcnow().timestamp()) + seconds
+        embed = discord.Embed(
+            title="🎉 Giveaway",
+            description=(
+                f"Prix : **{prix}**\n"
+                f"Gagnant(s) : **{gagnants}**\n"
+                f"Fin : <t:{end_at}:R>\n"
+                f"Invitations requises : **{invitations_minimum}**\n\n"
+                "Clique sur Participer pour rejoindre le giveaway."
+            ),
+            color=discord.Color.gold(),
+        )
+        message = await salon.send(embed=embed, view=GiveawayView(bot))
+
+        store = bot.get_giveaway_store(interaction.guild.id)
+        store[str(message.id)] = {
+            "message_id": message.id,
+            "channel_id": salon.id,
+            "prize": prix,
+            "winners_count": int(gagnants),
+            "min_invites": int(invitations_minimum),
+            "participants": [],
+            "winners": [],
+            "end_at": end_at,
+            "status": "active",
+            "created_by": interaction.user.id,
+        }
+        bot.save_giveaways()
+        bot.schedule_giveaway_end(interaction.guild.id, message.id, end_at)
+
+        await interaction.response.send_message(
+            f"Giveaway cree dans {salon.mention}. ID du message : `{message.id}`",
+            ephemeral=True,
+        )
+
+    @bot.tree.command(name="giveaway_end", description="Termine un giveaway maintenant")
+    @app_commands.describe(message_id="ID du message du giveaway")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_end(interaction: discord.Interaction, message_id: str) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        if not message_id.isdigit():
+            await interaction.response.send_message("L'ID du message doit etre un nombre.", ephemeral=True)
+            return
+
+        await bot.finish_giveaway(interaction.guild.id, int(message_id), ended_by=interaction.user)
+        await interaction.response.send_message("Giveaway termine si l'ID etait valide.", ephemeral=True)
+
+    @bot.tree.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
+    @app_commands.describe(message_id="ID du message du giveaway")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_reroll(interaction: discord.Interaction, message_id: str) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        if not message_id.isdigit():
+            await interaction.response.send_message("L'ID du message doit etre un nombre.", ephemeral=True)
+            return
+
+        winners = await bot.reroll_giveaway(interaction.guild.id, int(message_id))
+        if not winners:
+            await interaction.response.send_message("Aucun nouveau gagnant valide trouve.", ephemeral=True)
+            return
+
+        mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
+        await interaction.response.send_message(f"Nouveau gagnant : {mentions}")
 
     @bot.tree.command(name="config_role_staff", description="Definit le role staff pour les tickets ouverts")
     @app_commands.describe(role="Role qui verra les tickets ouverts")
