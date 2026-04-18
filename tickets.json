@@ -1,0 +1,87 @@
+{
+  "1489156260241866752": {
+    "channels": {
+      "1493536891260244028": {
+        "channel_id": 1493536891260244028,
+        "owner_id": 884046933138739281,
+        "status": "archived",
+        "type": "achat",
+        "number": 1,
+        "closed_by": 884046933138739281
+      },
+      "1493537596935110806": {
+        "channel_id": 1493537596935110806,
+        "owner_id": 1492917482975920310,
+        "status": "archived",
+        "type": "achat",
+        "number": 1,
+        "closed_by": 1492917482975920310
+      },
+      "1493538607292747857": {
+        "channel_id": 1493538607292747857,
+        "owner_id": 1492917482975920310,
+        "status": "open",
+        "type": "renseignement",
+        "number": 1,
+        "closed_by": 884046933138739281,
+        "reopened_by": 884046933138739281
+      },
+      "1493539481347948726": {
+        "channel_id": 1493539481347948726,
+        "owner_id": 1492917482975920310,
+        "status": "archived",
+        "type": "achat",
+        "number": 2,
+        "closed_by": 884046933138739281
+      },
+      "1493540259424768065": {
+        "channel_id": 1493540259424768065,
+        "owner_id": 1492917482975920310,
+        "status": "archived",
+        "type": "achat",
+        "number": 2,
+        "closed_by": 884046933138739281
+      },
+      "1493540318010802226": {
+        "channel_id": 1493540318010802226,
+        "owner_id": 1492917482975920310,
+        "status": "archived",
+        "type": "renseignement",
+        "number": 2,
+        "closed_by": 884046933138739281
+      },
+      "1493540331436773446": {
+        "channel_id": 1493540331436773446,
+        "owner_id": 1492917482975920310,
+        "status": "archived",
+        "type": "achat",
+        "number": 3,
+        "closed_by": 884046933138739281
+      },
+      "1493540563293704312": {
+        "channel_id": 1493540563293704312,
+        "owner_id": 1421451827748278373,
+        "status": "archived",
+        "type": "renseignement",
+        "number": 2,
+        "closed_by": 1421451827748278373
+      },
+      "1493562661370073179": {
+        "channel_id": 1493562661370073179,
+        "owner_id": 1421451827748278373,
+        "status": "archived",
+        "type": "renseignement",
+        "number": 2,
+        "closed_by": 1357817100965511332
+      },
+      "1493625998703329380": {
+        "channel_id": 1493625998703329380,
+        "owner_id": 884046933138739281,
+        "status": "archived",
+        "type": "achat",
+        "number": 2,
+        "closed_by": 1357817100965511332
+      }
+    }
+  }
+}
