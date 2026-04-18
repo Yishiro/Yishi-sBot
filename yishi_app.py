@@ -644,9 +644,9 @@ def register_commands(bot: YishiBot) -> None:
             for guild in bot.guilds:
                 await bot.ensure_ticket_config(guild)
                 await bot.cache_invites(guild)
-                bot.tree.copy_global_to(guild=guild)
-                await bot.tree.sync(guild=guild)
             await bot.schedule_existing_giveaways()
+            synced = await bot.tree.sync()
+            print(f"{len(synced)} commande(s) slash synchronisee(s).")
             bot.guild_sync_done = True
         print(f"Bot connecte en tant que {bot.user}")
 
