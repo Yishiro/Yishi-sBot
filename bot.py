@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 
 from keep_alive import keep_alive
-from yishi_app import create_bot
+from yishi_bot_app import create_bot
 
 
 load_dotenv()
