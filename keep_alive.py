@@ -1,5 +1,7 @@
-from flask import Flask
+import os
 from threading import Thread
+
+from flask import Flask
 
 
 app = Flask("")
@@ -11,9 +13,10 @@ def home():
 
 
 def run():
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 
 def keep_alive():
-    t = Thread(target=run)
+    t = Thread(target=run, daemon=True)
     t.start()
