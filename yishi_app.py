@@ -8,7 +8,15 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from storage import CONFIG_FILE, GIVEAWAYS_FILE, INVITES_FILE, TICKETS_FILE, WARNINGS_FILE, load_json, save_json
+from storage import (
+    CONFIG_FILE,
+    GIVEAWAYS_FILE,
+    INVITES_FILE,
+    TICKETS_FILE,
+    WARNINGS_FILE,
+    load_json,
+    save_json,
+)
 from tickets import TICKET_TYPES, build_ticket_panel_embed, slugify_name
 
 
@@ -17,9 +25,97 @@ AUTO_ARCHIVE_ROLE_NAME = "👑・𝐅ondateur"
 AUTO_TICKET_CATEGORY_NAME = "Tickets"
 AUTO_ARCHIVE_CATEGORY_NAME = "Ticket-Close"
 
+INVITE_ROLE_WEIGHTS = {
+    "🥉 Inviteur Bronze • 5": 1.5,
+    "🥈 Inviteur Silver • 10": 2.0,
+    "🥇 Inviteur Gold • 15": 2.5,
+    "💎 Inviteur Diamond • 20": 3.0,
+}
 
-def parse_duration(duration: str) -> int | None:
-    match = re.fullmatch(r"(\d+)([mhd])", duration.lower().strip())
+WELCOME_CHECKLIST = (
+    "• Lire les salons importants\n"
+    "• Consulter la boutique disponible\n"
+    "• Ouvrir un ticket si tu as une question ou si tu veux passer commande"
+)
+
+WELCOME_ADVANTAGES = (
+    "• Shop fiable, rapide et professionnel\n"
+    "• Service sérieux, sécurisé et de qualité\n"
+    "• Staff disponible pour t'aider"
+)
+
+RULES_TEXT = """📜 𝐑èglement Officiel
+Bienvenue sur Yishi's Shop.
+Afin de garantir une expérience sérieuse, fluide et agréable à l'ensemble des membres, chaque utilisateur est tenu de respecter le règlement ci-dessous.
+
+✧ 1. Respect & comportement
+Le respect envers tous les membres du serveur est obligatoire.
+Tout comportement toxique, irrespectueux, provocateur, agressif, insultant ou humiliant est strictement interdit.
+
+✧ 2. Spam & flood interdits
+Les messages répétitifs, le flood, le spam, les abus de majuscules, les mentions abusives ainsi que l'utilisation excessive d'emojis sont interdits.
+
+✧ 3. Contenus inappropriés
+Tout contenu choquant, violent, haineux, discriminatoire, sexuel, offensant ou inadapté au serveur est formellement interdit.
+
+✧ 4. Publicité non autorisée
+La publicité, sous quelque forme que ce soit, est interdite sans autorisation préalable du staff.
+Cela inclut les serveurs Discord, shops, réseaux sociaux, sites, services ou messages privés à but promotionnel.
+
+✧ 5. Utilisation correcte des salons
+Chaque salon possède une utilité précise.
+Merci de respecter leur fonction et d'éviter le hors-sujet afin de préserver une organisation claire et professionnelle.
+
+✧ 6. Commandes sérieuses uniquement
+Les commandes, demandes ou réservations doivent être sérieuses.
+Toute perte de temps volontaire, troll, faux intérêt ou abus envers le staff pourra être sanctionné.
+
+✧ 7. Tolérance zéro envers les arnaques
+Toute tentative d'arnaque, fraude, faux paiement, fausse preuve, chargeback, manipulation ou tromperie entraînera une sanction immédiate pouvant aller jusqu'au bannissement définitif.
+
+✧ 8. Paiements & preuves
+Les consignes données par le staff concernant les paiements, preuves, validations et tickets doivent être respectées.
+Toute tentative de contourner le système ou de fournir de fausses informations est interdite.
+
+✧ 9. Respect du staff
+Le staff est présent pour assurer le bon fonctionnement du serveur.
+Le manque de respect, la provocation, l'abus ou le refus délibéré de coopération avec l'équipe de modération ne seront pas tolérés.
+
+✧ 10. Tickets & support
+Les tickets doivent être ouverts uniquement pour une raison valable : commande, question importante, assistance ou problème réel.
+Tout abus de ticket pourra entraîner une restriction d'accès au support.
+
+✧ 11. Sécurité personnelle
+Ne partagez jamais vos informations sensibles : mots de passe, codes, adresses e-mail, moyens de paiement ou données privées.
+Vous êtes responsable de la sécurité de votre compte et de vos échanges.
+
+✧ 12. Transactions & services
+Les échanges et services proposés au sein du shop doivent rester clairs, honnêtes et conformes à ce qui est annoncé.
+Toute tentative de nuisance, de faux deal ou de perturbation volontaire sera sanctionnée.
+
+✧ 13. Sanctions
+Le non-respect du règlement peut entraîner, selon la gravité des faits :
+
+avertissement
+mute
+exclusion temporaire
+bannissement définitif
+
+Le staff se réserve le droit d'adapter les sanctions selon la situation.
+
+✧ 14. Acceptation du règlement
+En restant sur Yishi's Shop, vous acceptez automatiquement l'ensemble des règles mentionnées ci-dessus et vous engagez à les respecter pleinement.
+
+Merci de votre confiance et bon shopping sur Yishi's Shop"""
+
+RULES_ACCEPT_TEXT = (
+    "En réagissant avec ✅ à ce message, tu acceptes le règlement du serveur "
+    "et tu obtiens l'accès complet au serveur."
+)
+
+
+def parse_duration(value: str) -> int | None:
+    match = re.fullmatch(r"(\d+)([mhd])", value.lower().strip())
     if match is None:
         return None
 
@@ -31,9 +127,40 @@ def parse_duration(duration: str) -> int | None:
         return amount * 60
     if unit == "h":
         return amount * 60 * 60
-    if unit == "d":
-        return amount * 24 * 60 * 60
-    return None
+    return amount * 24 * 60 * 60
+
+
+def split_long_message(text: str, limit: int = 1900) -> list[str]:
+    if len(text) <= limit:
+        return [text]
+
+    parts: list[str] = []
+    current = ""
+    for block in text.split("\n\n"):
+        candidate = block if not current else f"{current}\n\n{block}"
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            parts.append(current)
+        current = block
+
+    if current:
+        parts.append(current)
+    return parts
+
+
+def default_config() -> dict[str, Any]:
+    return {
+        "staff_role_id": None,
+        "archive_role_id": None,
+        "ticket_category_id": None,
+        "archive_category_id": None,
+        "welcome_channel_id": None,
+        "rules_role_id": None,
+        "rules_message_id": None,
+        "rules_channel_id": None,
+    }
 
 
 def can_moderate(
@@ -42,14 +169,24 @@ def can_moderate(
     bot_member: discord.Member,
 ) -> str | None:
     if target == actor:
-        return "Tu ne peux pas te moderer toi-meme."
+        return "Tu ne peux pas te modérer toi-même."
     if target == bot_member:
-        return "Je ne peux pas me moderer moi-meme."
+        return "Je ne peux pas me modérer moi-même."
     if target.top_role >= actor.top_role and actor != actor.guild.owner:
-        return "Tu ne peux pas moderer ce membre car son role est egal ou superieur au tien."
+        return "Tu ne peux pas modérer ce membre car son rôle est égal ou supérieur au tien."
     if target.top_role >= bot_member.top_role:
-        return "Je ne peux pas moderer ce membre car son role est trop eleve."
+        return "Je ne peux pas modérer ce membre car son rôle est trop élevé."
     return None
+
+
+def get_member_giveaway_weight(member: discord.Member) -> float:
+    weight = 1.0
+    for role in member.roles:
+        weight = max(weight, INVITE_ROLE_WEIGHTS.get(role.name, 1.0))
+
+    if member.premium_since is not None or discord.utils.get(member.roles, name="Server Booster"):
+        weight += 1.0
+    return weight
 
 
 class TicketPanelSelect(discord.ui.Select):
@@ -64,7 +201,7 @@ class TicketPanelSelect(discord.ui.Select):
             for key, data in TICKET_TYPES.items()
         ]
         super().__init__(
-            placeholder="Selectionnez la raison de votre ticket...",
+            placeholder="Sélectionnez la raison de votre ticket...",
             min_values=1,
             max_values=1,
             options=options,
@@ -107,7 +244,7 @@ class TicketCloseView(discord.ui.View):
 class TicketReopenButton(discord.ui.Button):
     def __init__(self, bot: "YishiBot") -> None:
         super().__init__(
-            label="Reouvrir",
+            label="Réouvrir",
             style=discord.ButtonStyle.success,
             emoji="🔓",
             custom_id="ticket_reopen_button",
@@ -150,36 +287,28 @@ class YishiBot(commands.Bot):
         intents.message_content = True
         intents.members = True
         super().__init__(command_prefix="!", intents=intents)
+
         self.config_data = load_json(CONFIG_FILE, {})
         self.ticket_data = load_json(TICKETS_FILE, {})
         self.warning_data = load_json(WARNINGS_FILE, {})
         self.invite_data = load_json(INVITES_FILE, {})
         self.giveaway_data = load_json(GIVEAWAYS_FILE, {})
+
         self.invite_cache: dict[int, dict[str, int]] = {}
         self.giveaway_tasks: dict[str, asyncio.Task] = {}
-        self.guild_sync_done = False
+        self.sync_done = False
 
     async def setup_hook(self) -> None:
         self.add_view(TicketPanelView(self))
         self.add_view(TicketCloseView(self))
         self.add_view(TicketArchiveView(self))
         self.add_view(GiveawayView(self))
-        register_commands(self)
-        print("Preparation des commandes slash terminee.")
+        await self.add_cog(MainCog(self))
 
     def get_guild_config(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.config_data:
-            self.config_data[key] = {
-                "staff_role_id": None,
-                "archive_role_id": None,
-                "ticket_category_id": None,
-                "archive_category_id": None,
-                "welcome_channel_id": None,
-                "rules_role_id": None,
-                "rules_message_id": None,
-                "rules_channel_id": None,
-            }
+            self.config_data[key] = default_config()
             self.save_config()
         return self.config_data[key]
 
@@ -190,21 +319,12 @@ class YishiBot(commands.Bot):
             self.save_tickets()
         return self.ticket_data[key]
 
-    def save_config(self) -> None:
-        save_json(CONFIG_FILE, self.config_data)
-
-    def save_tickets(self) -> None:
-        save_json(TICKETS_FILE, self.ticket_data)
-
     def get_warning_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.warning_data:
             self.warning_data[key] = {}
             self.save_warnings()
         return self.warning_data[key]
-
-    def save_warnings(self) -> None:
-        save_json(WARNINGS_FILE, self.warning_data)
 
     def get_invite_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
@@ -213,9 +333,6 @@ class YishiBot(commands.Bot):
             self.save_invites()
         return self.invite_data[key]
 
-    def save_invites(self) -> None:
-        save_json(INVITES_FILE, self.invite_data)
-
     def get_giveaway_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.giveaway_data:
@@ -223,12 +340,96 @@ class YishiBot(commands.Bot):
             self.save_giveaways()
         return self.giveaway_data[key]
 
+    def save_config(self) -> None:
+        save_json(CONFIG_FILE, self.config_data)
+
+    def save_tickets(self) -> None:
+        save_json(TICKETS_FILE, self.ticket_data)
+
+    def save_warnings(self) -> None:
+        save_json(WARNINGS_FILE, self.warning_data)
+
+    def save_invites(self) -> None:
+        save_json(INVITES_FILE, self.invite_data)
+
     def save_giveaways(self) -> None:
         save_json(GIVEAWAYS_FILE, self.giveaway_data)
 
     def get_invite_count(self, guild_id: int, user_id: int) -> int:
-        store = self.get_invite_store(guild_id)
-        return int(store.get(str(user_id), 0))
+        return int(self.get_invite_store(guild_id).get(str(user_id), 0))
+
+    def get_open_tickets_for_user(self, guild_id: int, user_id: int) -> list[dict[str, Any]]:
+        return [
+            ticket
+            for ticket in self.get_ticket_store(guild_id)["channels"].values()
+            if ticket["owner_id"] == user_id and ticket["status"] == "open"
+        ]
+
+    def get_next_ticket_number(self, guild_id: int) -> int:
+        tickets = self.get_ticket_store(guild_id)["channels"].values()
+        used_numbers = sorted(
+            ticket["number"]
+            for ticket in tickets
+            if ticket["status"] == "open"
+        )
+
+        expected = 1
+        for number in used_numbers:
+            if number == expected:
+                expected += 1
+            elif number > expected:
+                break
+        return expected
+
+    def get_bot_member(self, guild: discord.Guild) -> discord.Member | None:
+        if self.user is None:
+            return None
+        return guild.get_member(self.user.id)
+
+    async def ensure_ticket_config(self, guild: discord.Guild) -> None:
+        config = self.get_guild_config(guild.id)
+
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        if staff_role is None:
+            staff_role = discord.utils.get(guild.roles, name=AUTO_STAFF_ROLE_NAME)
+            if staff_role is None:
+                staff_role = await guild.create_role(
+                    name=AUTO_STAFF_ROLE_NAME,
+                    reason="Auto configuration tickets",
+                )
+            config["staff_role_id"] = staff_role.id
+
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        if archive_role is None:
+            archive_role = discord.utils.get(guild.roles, name=AUTO_ARCHIVE_ROLE_NAME)
+            if archive_role is None:
+                archive_role = await guild.create_role(
+                    name=AUTO_ARCHIVE_ROLE_NAME,
+                    reason="Auto configuration tickets",
+                )
+            config["archive_role_id"] = archive_role.id
+
+        ticket_category = guild.get_channel(config["ticket_category_id"]) if config["ticket_category_id"] else None
+        if not isinstance(ticket_category, discord.CategoryChannel):
+            ticket_category = discord.utils.get(guild.categories, name=AUTO_TICKET_CATEGORY_NAME)
+            if ticket_category is None:
+                ticket_category = await guild.create_category(
+                    AUTO_TICKET_CATEGORY_NAME,
+                    reason="Auto configuration tickets",
+                )
+            config["ticket_category_id"] = ticket_category.id
+
+        archive_category = guild.get_channel(config["archive_category_id"]) if config["archive_category_id"] else None
+        if not isinstance(archive_category, discord.CategoryChannel):
+            archive_category = discord.utils.get(guild.categories, name=AUTO_ARCHIVE_CATEGORY_NAME)
+            if archive_category is None:
+                archive_category = await guild.create_category(
+                    AUTO_ARCHIVE_CATEGORY_NAME,
+                    reason="Auto configuration tickets",
+                )
+            config["archive_category_id"] = archive_category.id
+
+        self.save_config()
 
     async def cache_invites(self, guild: discord.Guild) -> None:
         try:
@@ -245,22 +446,22 @@ class YishiBot(commands.Bot):
         except discord.Forbidden:
             return None
 
-        inviter = None
-        new_cache = {invite.code: invite.uses or 0 for invite in invites}
+        inviter: discord.abc.User | None = None
+        after = {invite.code: invite.uses or 0 for invite in invites}
         for invite in invites:
-            old_uses = before.get(invite.code, 0)
-            new_uses = invite.uses or 0
-            if new_uses > old_uses and invite.inviter is not None:
+            previous_uses = before.get(invite.code, 0)
+            current_uses = invite.uses or 0
+            if current_uses > previous_uses and invite.inviter is not None:
                 inviter = invite.inviter
                 break
 
-        self.invite_cache[member.guild.id] = new_cache
+        self.invite_cache[member.guild.id] = after
         if inviter is None:
             return None
 
         store = self.get_invite_store(member.guild.id)
-        inviter_key = str(inviter.id)
-        store[inviter_key] = int(store.get(inviter_key, 0)) + 1
+        key = str(inviter.id)
+        store[key] = int(store.get(key, 0)) + 1
         self.save_invites()
         return member.guild.get_member(inviter.id)
 
@@ -268,230 +469,126 @@ class YishiBot(commands.Bot):
         for guild_id, giveaways in self.giveaway_data.items():
             for message_id, giveaway in giveaways.items():
                 if giveaway.get("status") == "active":
-                    self.schedule_giveaway_end(int(guild_id), int(message_id), int(giveaway["end_at"]))
+                    self.schedule_giveaway_end(
+                        int(guild_id),
+                        int(message_id),
+                        int(giveaway["end_at"]),
+                    )
 
     def schedule_giveaway_end(self, guild_id: int, message_id: int, end_at: int) -> None:
         task_key = f"{guild_id}:{message_id}"
-        if task_key in self.giveaway_tasks:
-            self.giveaway_tasks[task_key].cancel()
-        self.giveaway_tasks[task_key] = asyncio.create_task(self._giveaway_end_task(guild_id, message_id, end_at))
+        existing = self.giveaway_tasks.get(task_key)
+        if existing is not None:
+            existing.cancel()
+        self.giveaway_tasks[task_key] = asyncio.create_task(
+            self._giveaway_end_task(guild_id, message_id, end_at)
+        )
 
     async def _giveaway_end_task(self, guild_id: int, message_id: int, end_at: int) -> None:
         await asyncio.sleep(max(0, end_at - int(discord.utils.utcnow().timestamp())))
-        await self.finish_giveaway(guild_id, message_id, ended_by=None)
+        await self.finish_giveaway(guild_id, message_id)
 
-    async def join_giveaway(self, interaction: discord.Interaction) -> None:
-        if interaction.guild is None or interaction.message is None:
-            await interaction.response.send_message("Impossible de participer ici.", ephemeral=True)
-            return
+    def cancel_giveaway_task(self, guild_id: int, message_id: int) -> None:
+        task_key = f"{guild_id}:{message_id}"
+        existing = self.giveaway_tasks.pop(task_key, None)
+        if existing is not None:
+            existing.cancel()
 
-        store = self.get_giveaway_store(interaction.guild.id)
-        giveaway = store.get(str(interaction.message.id))
-        if giveaway is None or giveaway.get("status") != "active":
-            await interaction.response.send_message("Ce giveaway n'est plus actif.", ephemeral=True)
-            return
-
-        user_id = interaction.user.id
-        participants = giveaway.setdefault("participants", [])
-        if user_id in participants:
-            await interaction.response.send_message("Tu participes deja a ce giveaway.", ephemeral=True)
-            return
-
-        min_invites = int(giveaway.get("min_invites", 0))
-        invite_count = self.get_invite_count(interaction.guild.id, user_id)
-        if invite_count < min_invites:
-            await interaction.response.send_message(
-                f"Tu dois avoir au moins {min_invites} invitation(s) pour participer. Tu en as {invite_count}.",
-                ephemeral=True,
-            )
-            return
-
-        participants.append(user_id)
-        self.save_giveaways()
-
-        await interaction.response.send_message("Participation enregistree.", ephemeral=True)
-        try:
-            await interaction.user.send(f"Tu participes au giveaway : {giveaway['prize']}")
-        except discord.Forbidden:
-            pass
-
-    async def finish_giveaway(self, guild_id: int, message_id: int, ended_by: discord.Member | None) -> None:
-        store = self.get_giveaway_store(guild_id)
-        giveaway = store.get(str(message_id))
-        if giveaway is None or giveaway.get("status") != "active":
-            return
-
-        guild = self.get_guild(guild_id)
-        if guild is None:
-            return
-
-        channel = guild.get_channel(giveaway["channel_id"])
-        if not isinstance(channel, discord.TextChannel):
-            return
-
-        participants = list(dict.fromkeys(giveaway.get("participants", [])))
-        valid_participants = [
-            user_id
-            for user_id in participants
-            if self.get_invite_count(guild_id, user_id) >= int(giveaway.get("min_invites", 0))
-        ]
-        winners_count = min(int(giveaway["winners_count"]), len(valid_participants))
-        winners = random.sample(valid_participants, winners_count) if winners_count > 0 else []
-
-        giveaway["status"] = "ended"
-        giveaway["winners"] = winners
-        self.save_giveaways()
-
-        mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
-        if mentions:
-            await channel.send(f"🎉 Giveaway termine ! Gagnant(s) pour **{giveaway['prize']}** : {mentions}")
-        else:
-            await channel.send(f"🎉 Giveaway termine pour **{giveaway['prize']}**, mais aucun participant valide n'a ete trouve.")
-
-    async def reroll_giveaway(self, guild_id: int, message_id: int) -> list[int]:
-        store = self.get_giveaway_store(guild_id)
-        giveaway = store.get(str(message_id))
-        if giveaway is None:
-            return []
-
-        participants = list(dict.fromkeys(giveaway.get("participants", [])))
-        previous_winners = set(giveaway.get("winners", []))
-        valid_participants = [
-            user_id
-            for user_id in participants
-            if user_id not in previous_winners
-            and self.get_invite_count(guild_id, user_id) >= int(giveaway.get("min_invites", 0))
-        ]
-        winners_count = min(int(giveaway["winners_count"]), len(valid_participants))
-        winners = random.sample(valid_participants, winners_count) if winners_count > 0 else []
-        giveaway["winners"] = winners
-        self.save_giveaways()
-        return winners
-
-    async def ensure_ticket_config(self, guild: discord.Guild) -> None:
-        config = self.get_guild_config(guild.id)
-
-        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
-        if staff_role is None:
-            staff_role = discord.utils.get(guild.roles, name=AUTO_STAFF_ROLE_NAME)
-            if staff_role is None:
-                staff_role = await guild.create_role(
-                    name=AUTO_STAFF_ROLE_NAME,
-                    reason="Auto configuration du systeme de tickets",
-                )
-            config["staff_role_id"] = staff_role.id
-
-        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
-        if archive_role is None:
-            archive_role = discord.utils.get(guild.roles, name=AUTO_ARCHIVE_ROLE_NAME)
-            if archive_role is None:
-                archive_role = await guild.create_role(
-                    name=AUTO_ARCHIVE_ROLE_NAME,
-                    reason="Auto configuration du systeme de tickets",
-                )
-            config["archive_role_id"] = archive_role.id
-
-        ticket_category = guild.get_channel(config["ticket_category_id"]) if config["ticket_category_id"] else None
-        if not isinstance(ticket_category, discord.CategoryChannel):
-            ticket_category = discord.utils.get(guild.categories, name=AUTO_TICKET_CATEGORY_NAME)
-            if ticket_category is None:
-                ticket_category = await guild.create_category(
-                    AUTO_TICKET_CATEGORY_NAME,
-                    reason="Auto configuration du systeme de tickets",
-                )
-            config["ticket_category_id"] = ticket_category.id
-
-        archive_category = guild.get_channel(config["archive_category_id"]) if config["archive_category_id"] else None
-        if not isinstance(archive_category, discord.CategoryChannel):
-            archive_category = discord.utils.get(guild.categories, name=AUTO_ARCHIVE_CATEGORY_NAME)
-            if archive_category is None:
-                archive_category = await guild.create_category(
-                    AUTO_ARCHIVE_CATEGORY_NAME,
-                    reason="Auto configuration du systeme de tickets",
-                )
-            config["archive_category_id"] = archive_category.id
-
-        self.save_config()
-
-    def get_open_tickets_for_user(self, guild_id: int, user_id: int) -> list[dict[str, Any]]:
-        store = self.get_ticket_store(guild_id)
-        return [
-            ticket
-            for ticket in store["channels"].values()
-            if ticket["owner_id"] == user_id and ticket["status"] == "open"
-        ]
-
-    def get_next_ticket_number(self, guild_id: int) -> int:
-        store = self.get_ticket_store(guild_id)
-        used_numbers = sorted(
-            ticket["number"]
-            for ticket in store["channels"].values()
-            if ticket["status"] == "open"
-        )
-        expected = 1
-        for number in used_numbers:
-            if number == expected:
-                expected += 1
-            elif number > expected:
-                break
-        return expected
+    async def send_rules_text(self, channel: discord.TextChannel) -> None:
+        for part in split_long_message(RULES_TEXT):
+            await channel.send(part)
 
     async def create_ticket(self, interaction: discord.Interaction, ticket_type: str) -> None:
         guild = interaction.guild
         user = interaction.user
         if guild is None or not isinstance(user, discord.Member):
-            await interaction.response.send_message("Impossible de creer un ticket ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de créer un ticket ici.",
+                ephemeral=True,
+            )
             return
 
         config = self.get_guild_config(guild.id)
-        required = [
-            config["staff_role_id"],
-            config["archive_role_id"],
-            config["ticket_category_id"],
-            config["archive_category_id"],
-        ]
-        if not all(required):
-            await interaction.response.send_message("Le systeme de tickets n'est pas encore configure.", ephemeral=True)
-            return
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        ticket_category = guild.get_channel(config["ticket_category_id"]) if config["ticket_category_id"] else None
+        archive_category = guild.get_channel(config["archive_category_id"]) if config["archive_category_id"] else None
 
-        staff_role = guild.get_role(config["staff_role_id"])
-        archive_role = guild.get_role(config["archive_role_id"])
-        ticket_category = guild.get_channel(config["ticket_category_id"])
-        archive_category = guild.get_channel(config["archive_category_id"])
         if (
             staff_role is None
             or archive_role is None
             or not isinstance(ticket_category, discord.CategoryChannel)
             or not isinstance(archive_category, discord.CategoryChannel)
         ):
-            await interaction.response.send_message("La configuration des tickets est invalide.", ephemeral=True)
-            return
-
-        if len(self.get_open_tickets_for_user(guild.id, user.id)) >= 3:
             await interaction.response.send_message(
-                "Tu as deja 3 tickets ouverts. Ferme-en un avant d'en creer un autre.",
+                "Le système de tickets n'est pas encore configuré correctement.",
                 ephemeral=True,
             )
             return
 
-        ticket_number = self.get_next_ticket_number(guild.id)
-        channel_name = f"{ticket_number}-{slugify_name(user.display_name)}"
+        if len(self.get_open_tickets_for_user(guild.id, user.id)) >= 3:
+            await interaction.response.send_message(
+                "Tu as déjà 3 tickets ouverts. Ferme-en un avant d'en créer un autre.",
+                ephemeral=True,
+            )
+            return
+
+        number = self.get_next_ticket_number(guild.id)
+        channel_name = f"{number}-{slugify_name(user.display_name)}"
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True),
-            staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True),
-            archive_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True),
+            user: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+            staff_role: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            ),
+            archive_role: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            ),
         }
-        channel = await guild.create_text_channel(name=channel_name, category=ticket_category, overwrites=overwrites, reason=f"Creation du ticket {ticket_type} par {user}")
+        channel = await guild.create_text_channel(
+            name=channel_name,
+            category=ticket_category,
+            overwrites=overwrites,
+            reason=f"Création du ticket {ticket_type} par {user}",
+        )
 
         store = self.get_ticket_store(guild.id)
-        store["channels"][str(channel.id)] = {"channel_id": channel.id, "owner_id": user.id, "status": "open", "type": ticket_type, "number": ticket_number}
+        store["channels"][str(channel.id)] = {
+            "channel_id": channel.id,
+            "owner_id": user.id,
+            "status": "open",
+            "type": ticket_type,
+            "number": number,
+        }
         self.save_tickets()
 
-        embed = discord.Embed(title=f"Ticket {TICKET_TYPES[ticket_type]['label']}", description=f"{user.mention}, ton ticket a ete cree avec succes.\nExplique ta demande avec le plus de details possible.", color=discord.Color.green())
-        embed.add_field(name="Categorie", value=TICKET_TYPES[ticket_type]["label"], inline=True)
-        embed.add_field(name="Numero", value=str(ticket_number), inline=True)
-        await channel.send(content=f"{user.mention} {staff_role.mention}", embed=embed, view=TicketCloseView(self))
+        embed = discord.Embed(
+            title=f"Ticket {TICKET_TYPES[ticket_type]['label']}",
+            description=(
+                f"{user.mention}, ton ticket a été créé avec succès.\n"
+                "Explique ta demande avec le plus de détails possible."
+            ),
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Catégorie", value=TICKET_TYPES[ticket_type]["label"], inline=True)
+        embed.add_field(name="Numéro", value=str(number), inline=True)
+        await channel.send(
+            content=f"{user.mention} {staff_role.mention}",
+            embed=embed,
+            view=TicketCloseView(self),
+        )
         await interaction.response.defer(ephemeral=True, thinking=False)
 
     async def archive_ticket(self, interaction: discord.Interaction) -> None:
@@ -499,16 +596,25 @@ class YishiBot(commands.Bot):
         channel = interaction.channel
         user = interaction.user
         if guild is None or channel is None or not isinstance(user, discord.Member):
-            await interaction.response.send_message("Impossible de fermer ce ticket.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de fermer ce ticket.",
+                ephemeral=True,
+            )
             return
 
         store = self.get_ticket_store(guild.id)
         ticket = store["channels"].get(str(channel.id))
         if ticket is None:
-            await interaction.response.send_message("Ce salon n'est pas gere comme un ticket par le bot.", ephemeral=True)
+            await interaction.response.send_message(
+                "Ce salon n'est pas un ticket géré par le bot.",
+                ephemeral=True,
+            )
             return
         if ticket["status"] != "open":
-            await interaction.response.send_message("Ce ticket est deja archive.", ephemeral=True)
+            await interaction.response.send_message(
+                "Ce ticket est déjà archivé.",
+                ephemeral=True,
+            )
             return
 
         config = self.get_guild_config(guild.id)
@@ -516,46 +622,99 @@ class YishiBot(commands.Bot):
         archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
         archive_category = guild.get_channel(config["archive_category_id"]) if config["archive_category_id"] else None
         owner = guild.get_member(ticket["owner_id"])
+
         if archive_role is None or not isinstance(archive_category, discord.CategoryChannel):
-            await interaction.response.send_message("La configuration des archives est invalide.", ephemeral=True)
+            await interaction.response.send_message(
+                "La configuration des archives est invalide.",
+                ephemeral=True,
+            )
             return
 
-        is_allowed = user.id == guild.owner_id or archive_role in user.roles or (staff_role is not None and staff_role in user.roles)
-        if not is_allowed:
-            await interaction.response.send_message("Tu n'as pas la permission de fermer ce ticket.", ephemeral=True)
+        is_staff = staff_role is not None and staff_role in user.roles
+        is_archive_staff = archive_role in user.roles
+        if not (user.id == guild.owner_id or is_staff or is_archive_staff):
+            await interaction.response.send_message(
+                "Seul le staff peut fermer ce ticket.",
+                ephemeral=True,
+            )
             return
 
         await interaction.response.defer(ephemeral=True)
         await channel.edit(category=archive_category, reason=f"Archivage du ticket par {user}")
+
         if owner is not None:
-            await channel.set_permissions(owner, overwrite=discord.PermissionOverwrite(view_channel=False))
+            await channel.set_permissions(
+                owner,
+                overwrite=discord.PermissionOverwrite(view_channel=False),
+            )
         if staff_role is not None:
-            await channel.set_permissions(staff_role, overwrite=discord.PermissionOverwrite(view_channel=False))
-        await channel.set_permissions(archive_role, overwrite=discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True))
-        await channel.set_permissions(guild.default_role, overwrite=discord.PermissionOverwrite(view_channel=False))
+            await channel.set_permissions(
+                staff_role,
+                overwrite=discord.PermissionOverwrite(view_channel=False),
+            )
+        await channel.set_permissions(
+            archive_role,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            ),
+        )
+        if guild.owner is not None:
+            await channel.set_permissions(
+                guild.owner,
+                overwrite=discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_messages=True,
+                ),
+            )
+        await channel.set_permissions(
+            guild.default_role,
+            overwrite=discord.PermissionOverwrite(view_channel=False),
+        )
 
         ticket["status"] = "archived"
         ticket["closed_by"] = user.id
         self.save_tickets()
-        embed = discord.Embed(title="Ticket archive", description=f"Ce ticket a ete archive par {user.mention}.\nSeul le staff superieur peut maintenant consulter cette archive.", color=discord.Color.orange())
+
+        embed = discord.Embed(
+            title="Ticket archivé",
+            description=(
+                f"Ce ticket a été archivé par {user.mention}.\n"
+                "Seul le staff supérieur peut maintenant consulter cette archive."
+            ),
+            color=discord.Color.orange(),
+        )
         await channel.send(embed=embed, view=TicketArchiveView(self))
-        await interaction.followup.send("Le ticket a ete archive.", ephemeral=True)
+        await interaction.followup.send("Le ticket a été archivé.", ephemeral=True)
 
     async def reopen_ticket(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         channel = interaction.channel
         user = interaction.user
         if guild is None or channel is None or not isinstance(user, discord.Member):
-            await interaction.response.send_message("Impossible de reouvrir ce ticket.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de réouvrir ce ticket.",
+                ephemeral=True,
+            )
             return
 
         store = self.get_ticket_store(guild.id)
         ticket = store["channels"].get(str(channel.id))
         if ticket is None:
-            await interaction.response.send_message("Ce salon n'est pas gere comme un ticket par le bot.", ephemeral=True)
+            await interaction.response.send_message(
+                "Ce salon n'est pas un ticket géré par le bot.",
+                ephemeral=True,
+            )
             return
         if ticket["status"] != "archived":
-            await interaction.response.send_message("Ce ticket n'est pas archive.", ephemeral=True)
+            await interaction.response.send_message(
+                "Ce ticket n'est pas archivé.",
+                ephemeral=True,
+            )
             return
 
         config = self.get_guild_config(guild.id)
@@ -569,27 +728,32 @@ class YishiBot(commands.Bot):
             or archive_role is None
             or not isinstance(ticket_category, discord.CategoryChannel)
         ):
-            await interaction.response.send_message("La configuration des tickets est invalide.", ephemeral=True)
+            await interaction.response.send_message(
+                "La configuration des tickets est invalide.",
+                ephemeral=True,
+            )
             return
-
-        is_allowed = user.id == guild.owner_id or archive_role in user.roles
-        if not is_allowed:
-            await interaction.response.send_message("Seul le staff superieur peut reouvrir ce ticket.", ephemeral=True)
+        if not (user.id == guild.owner_id or archive_role in user.roles):
+            await interaction.response.send_message(
+                "Seul le staff supérieur peut réouvrir ce ticket.",
+                ephemeral=True,
+            )
             return
-
         if owner is None:
-            await interaction.response.send_message("Le createur du ticket n'est plus sur le serveur.", ephemeral=True)
+            await interaction.response.send_message(
+                "Le créateur du ticket n'est plus sur le serveur.",
+                ephemeral=True,
+            )
             return
-
         if len(self.get_open_tickets_for_user(guild.id, owner.id)) >= 3:
             await interaction.response.send_message(
-                "Impossible de reouvrir ce ticket car l'utilisateur a deja 3 tickets ouverts.",
+                "Impossible de réouvrir ce ticket car l'utilisateur a déjà 3 tickets ouverts.",
                 ephemeral=True,
             )
             return
 
         await interaction.response.defer(ephemeral=True)
-        await channel.edit(category=ticket_category, reason=f"Reouverture du ticket par {user}")
+        await channel.edit(category=ticket_category, reason=f"Réouverture du ticket par {user}")
         await channel.set_permissions(
             owner,
             overwrite=discord.PermissionOverwrite(
@@ -618,135 +782,302 @@ class YishiBot(commands.Bot):
                 manage_messages=True,
             ),
         )
-        await channel.set_permissions(guild.default_role, overwrite=discord.PermissionOverwrite(view_channel=False))
+        if guild.owner is not None:
+            await channel.set_permissions(
+                guild.owner,
+                overwrite=discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_messages=True,
+                ),
+            )
+        await channel.set_permissions(
+            guild.default_role,
+            overwrite=discord.PermissionOverwrite(view_channel=False),
+        )
 
         ticket["status"] = "open"
         ticket["reopened_by"] = user.id
         self.save_tickets()
 
         embed = discord.Embed(
-            title="Ticket reouvert",
-            description=f"Ce ticket a ete reouvert par {user.mention}.",
+            title="Ticket réouvert",
+            description=f"Ce ticket a été réouvert par {user.mention}.",
             color=discord.Color.green(),
         )
         await channel.send(embed=embed, view=TicketCloseView(self))
-        await interaction.followup.send("Le ticket a ete reouvert.", ephemeral=True)
+        await interaction.followup.send("Le ticket a été réouvert.", ephemeral=True)
 
-
-def create_bot() -> YishiBot:
-    return YishiBot()
-
-
-def register_commands(bot: YishiBot) -> None:
-    @bot.event
-    async def on_ready() -> None:
-        if not bot.guild_sync_done:
-            for guild in bot.guilds:
-                await bot.ensure_ticket_config(guild)
-                await bot.cache_invites(guild)
-                bot.tree.copy_global_to(guild=guild)
-                synced = await bot.tree.sync(guild=guild)
-                print(f"{len(synced)} commande(s) slash synchronisee(s) sur {guild.name}.")
-            await bot.schedule_existing_giveaways()
-            bot.tree.clear_commands(guild=None)
-            await bot.tree.sync()
-            bot.guild_sync_done = True
-        print(f"Bot connecte en tant que {bot.user}")
-
-    @bot.event
-    async def on_member_join(member: discord.Member) -> None:
-        config = bot.get_guild_config(member.guild.id)
-        welcome_channel = member.guild.get_channel(config["welcome_channel_id"]) if config["welcome_channel_id"] else member.guild.system_channel
-        inviter = await bot.track_member_invite(member)
-        if isinstance(welcome_channel, discord.TextChannel):
-            await welcome_channel.send(
-                "🌙 Bienvenue sur Yishi’s Shop, "
-                f"{member.mention} !\n"
-                "Nous sommes ravis de t’accueillir sur le serveur. Ici, tu trouveras un shop fiable, rapide et professionnel specialise sur Blox Fruits.\n\n"
-                "✨ Avant de commencer, pense a :\n"
-                "• Lire les salons importants\n"
-                "• Consulter la boutique disponible\n"
-                "• Ouvrir un ticket si tu as une question ou si tu veux passer commande\n\n"
-                "💎 Chez Yishi’s Shop, notre objectif est de t’offrir un service serieux, securise et de qualite.\n\n"
-                "📩 Besoin d’aide ? Le staff est la pour toi.\n"
-                "Profite bien du serveur et merci de ta confiance."
+    async def join_giveaway(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Impossible de participer ici.",
+                ephemeral=True,
             )
-            if inviter is not None:
-                await welcome_channel.send(f"{member.mention} a ete invite par {inviter.mention}.")
-            else:
-                await welcome_channel.send(f"Impossible de detecter qui a invite {member.mention}.")
-
-    @bot.event
-    async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
-        if payload.guild_id is None or str(payload.emoji) != "✅":
-            return
-        if payload.user_id == bot.user.id:
             return
 
-        config = bot.get_guild_config(payload.guild_id)
-        if payload.message_id != config.get("rules_message_id"):
+        store = self.get_giveaway_store(interaction.guild.id)
+        giveaway = store.get(str(interaction.message.id))
+        if giveaway is None or giveaway.get("status") != "active":
+            await interaction.response.send_message(
+                "Ce giveaway n'est plus actif.",
+                ephemeral=True,
+            )
             return
 
-        guild = bot.get_guild(payload.guild_id)
+        user_id = interaction.user.id
+        participants = giveaway.setdefault("participants", [])
+        if user_id in participants:
+            await interaction.response.send_message(
+                "Tu participes déjà à ce giveaway.",
+                ephemeral=True,
+            )
+            return
+
+        participants.append(user_id)
+        self.save_giveaways()
+        await interaction.response.send_message(
+            "Participation enregistrée.",
+            ephemeral=True,
+        )
+        try:
+            await interaction.user.send(f"Tu participes au giveaway : {giveaway['prize']}")
+        except discord.Forbidden:
+            pass
+
+    def _pick_weighted_winners(
+        self,
+        guild: discord.Guild,
+        participant_ids: list[int],
+        winners_count: int,
+        excluded: set[int] | None = None,
+    ) -> list[int]:
+        pool: list[tuple[int, float]] = []
+        excluded = excluded or set()
+
+        for user_id in participant_ids:
+            if user_id in excluded:
+                continue
+            member = guild.get_member(user_id)
+            if member is None:
+                continue
+            pool.append((user_id, get_member_giveaway_weight(member)))
+
+        winners: list[int] = []
+        for _ in range(min(winners_count, len(pool))):
+            total_weight = sum(weight for _, weight in pool)
+            if total_weight <= 0:
+                break
+            pick = random.uniform(0, total_weight)
+            running = 0.0
+            chosen_index = 0
+            for index, (_, weight) in enumerate(pool):
+                running += weight
+                if pick <= running:
+                    chosen_index = index
+                    break
+            winner_id, _ = pool.pop(chosen_index)
+            winners.append(winner_id)
+        return winners
+
+    async def finish_giveaway(self, guild_id: int, message_id: int) -> None:
+        store = self.get_giveaway_store(guild_id)
+        giveaway = store.get(str(message_id))
+        if giveaway is None or giveaway.get("status") != "active":
+            return
+
+        guild = self.get_guild(guild_id)
         if guild is None:
             return
-
-        role_id = config.get("rules_role_id")
-        if role_id is None:
+        channel = guild.get_channel(giveaway["channel_id"])
+        if not isinstance(channel, discord.TextChannel):
             return
 
-        role = guild.get_role(role_id)
-        if role is None:
+        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
+        winners = self._pick_weighted_winners(
+            guild,
+            participant_ids,
+            int(giveaway["winners_count"]),
+        )
+
+        giveaway["status"] = "ended"
+        giveaway["winners"] = winners
+        self.save_giveaways()
+        self.cancel_giveaway_task(guild_id, message_id)
+
+        if winners:
+            mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
+            await channel.send(
+                f"🎉 Giveaway terminé ! Gagnant(s) pour **{giveaway['prize']}** : {mentions}"
+            )
+        else:
+            await channel.send(
+                f"🎉 Giveaway terminé pour **{giveaway['prize']}**, "
+                "mais aucun participant valide n'a été trouvé."
+            )
+
+    async def reroll_giveaway(self, guild_id: int, message_id: int) -> list[int]:
+        store = self.get_giveaway_store(guild_id)
+        giveaway = store.get(str(message_id))
+        if giveaway is None:
+            return []
+
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            return []
+
+        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
+        previous_winners = set(giveaway.get("winners", []))
+        winners = self._pick_weighted_winners(
+            guild,
+            participant_ids,
+            int(giveaway["winners_count"]),
+            excluded=previous_winners,
+        )
+        giveaway["winners"] = winners
+        self.save_giveaways()
+        return winners
+
+    async def sync_commands_once(self) -> None:
+        if self.sync_done:
             return
 
-        member = guild.get_member(payload.user_id)
-        if member is None or member.bot:
+        for guild in self.guilds:
+            await self.ensure_ticket_config(guild)
+            await self.cache_invites(guild)
+            self.tree.copy_global_to(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            print(f"{len(synced)} commande(s) slash synchronisée(s) sur {guild.name}.")
+
+        self.tree.clear_commands(guild=None)
+        await self.tree.sync()
+        await self.schedule_existing_giveaways()
+        self.sync_done = True
+
+
+class MainCog(commands.Cog):
+    def __init__(self, bot: YishiBot) -> None:
+        self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        await self.bot.sync_commands_once()
+        print(f"Bot connecté en tant que {self.bot.user}")
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        config = self.bot.get_guild_config(member.guild.id)
+        welcome_channel = (
+            member.guild.get_channel(config["welcome_channel_id"])
+            if config["welcome_channel_id"]
+            else member.guild.system_channel
+        )
+        inviter = await self.bot.track_member_invite(member)
+        if not isinstance(welcome_channel, discord.TextChannel):
             return
 
-        if role in member.roles:
+        embed = discord.Embed(
+            title="Nouveau membre !",
+            description=(
+                f"## Bienvenue, {member.mention} 👋\n"
+                f"Tu es le **{member.guild.member_count}ème membre** à rejoindre **Yishi's Shop**."
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Avant de commencer", value=WELCOME_CHECKLIST, inline=False)
+        embed.add_field(name="Pourquoi nous choisir", value=WELCOME_ADVANTAGES, inline=False)
+        embed.add_field(
+            name="Invitation",
+            value=f"Invité par {inviter.mention}" if inviter is not None else "Inviteur non détecté",
+            inline=False,
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        if member.guild.banner:
+            embed.set_image(url=member.guild.banner.url)
+        embed.set_author(
+            name=member.guild.name,
+            icon_url=member.guild.icon.url if member.guild.icon else None,
+        )
+        embed.set_footer(
+            text=f"Bienvenue parmi nous • {discord.utils.utcnow().strftime('%H:%M')}",
+            icon_url=member.guild.icon.url if member.guild.icon else None,
+        )
+        await welcome_channel.send(embed=embed)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        if payload.guild_id is None or str(payload.emoji) != "✅":
+            return
+        if self.bot.user is not None and payload.user_id == self.bot.user.id:
             return
 
-        await member.add_roles(role, reason="Validation du reglement par reaction")
+        config = self.bot.get_guild_config(payload.guild_id)
+        if payload.message_id != config["rules_message_id"]:
+            return
 
-    @bot.tree.command(name="aide", description="Affiche la liste des commandes")
-    async def aide(interaction: discord.Interaction) -> None:
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is None:
+            return
+        role = guild.get_role(config["rules_role_id"]) if config["rules_role_id"] else None
+        try:
+            member = guild.get_member(payload.user_id) or await guild.fetch_member(payload.user_id)
+        except (discord.Forbidden, discord.NotFound):
+            return
+        if role is None or member.bot or role in member.roles:
+            return
+        await member.add_roles(role, reason="Validation du règlement par réaction")
+
+    @app_commands.command(name="aide", description="Affiche la liste des commandes")
+    async def aide(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(title="Commandes", color=discord.Color.blurple())
-        embed.add_field(name="/aide", value="Affiche cette aide.", inline=False)
-        embed.add_field(name="/ping", value="Teste la latence du bot.", inline=False)
-        embed.add_field(name="/paiement", value="Affiche les moyens de paiement du shop.", inline=False)
-        embed.add_field(name="/invites", value="Affiche ton nombre d'invitations.", inline=False)
-        embed.add_field(name="/dire", value="Fait parler le bot.", inline=False)
-        embed.add_field(name="/envoyer_message", value="Envoie un message dans le salon de ton choix.", inline=False)
-        embed.add_field(name="/annonce", value="Envoie une annonce en embed dans un salon.", inline=False)
-        embed.add_field(name="/userinfo", value="Affiche les informations d'un membre.", inline=False)
-        embed.add_field(name="/clear", value="Supprime des messages.", inline=False)
-        embed.add_field(name="/kick", value="Expulse un membre.", inline=False)
-        embed.add_field(name="/ban", value="Bannit un membre.", inline=False)
-        embed.add_field(name="/mute", value="Timeout un membre.", inline=False)
-        embed.add_field(name="/unmute", value="Retire le timeout d'un membre.", inline=False)
-        embed.add_field(name="/warn", value="Avertit un membre avec une raison.", inline=False)
-        embed.add_field(name="/list_warn", value="Affiche les avertissements d'un membre.", inline=False)
-        embed.add_field(name="/add_membre_ticket", value="Ajoute un membre au ticket actuel.", inline=False)
-        embed.add_field(name="/giveaway_create", value="Cree un giveaway.", inline=False)
-        embed.add_field(name="/giveaway_end", value="Termine un giveaway.", inline=False)
-        embed.add_field(name="/giveaway_reroll", value="Retire un nouveau gagnant.", inline=False)
-        embed.add_field(name="/config_role_staff", value="Definit le role staff des tickets ouverts.", inline=False)
-        embed.add_field(name="/config_role_archive", value="Definit le role staff superieur des archives.", inline=False)
-        embed.add_field(name="/config_categorie_tickets", value="Definit la categorie des tickets ouverts.", inline=False)
-        embed.add_field(name="/config_categorie_archives", value="Definit la categorie des tickets archives.", inline=False)
-        embed.add_field(name="/config_salon_bienvenue", value="Definit le salon des messages de bienvenue.", inline=False)
-        embed.add_field(name="/config_role_regles", value="Definit le role donne apres acceptation du reglement.", inline=False)
-        embed.add_field(name="/envoyer_reglement", value="Envoie le reglement officiel dans le salon choisi.", inline=False)
-        embed.add_field(name="/envoyer_message_regles", value="Envoie le message de validation avec reaction ✅.", inline=False)
-        embed.add_field(name="/envoyer_panel_tickets", value="Envoie le panneau de tickets dans un salon.", inline=False)
+        embed.add_field(
+            name="Général",
+            value="/aide\n/ping\n/paiement\n/invites\n/userinfo",
+            inline=False,
+        )
+        embed.add_field(
+            name="Messages",
+            value="/dire\n/envoyer_message\n/annonce",
+            inline=False,
+        )
+        embed.add_field(
+            name="Modération",
+            value="/clear\n/kick\n/ban\n/mute\n/unmute\n/warn\n/list_warn",
+            inline=False,
+        )
+        embed.add_field(
+            name="Tickets",
+            value="/envoyer_panel_tickets\n/add_membre_ticket",
+            inline=False,
+        )
+        embed.add_field(
+            name="Giveaways",
+            value="/giveaway_create\n/giveaway_end\n/giveaway_reroll",
+            inline=False,
+        )
+        embed.add_field(
+            name="Configuration",
+            value=(
+                "/config_role_staff\n"
+                "/config_role_archive\n"
+                "/config_categorie_tickets\n"
+                "/config_categorie_archives\n"
+                "/config_salon_bienvenue\n"
+                "/config_role_regles\n"
+                "/envoyer_reglement\n"
+                "/envoyer_message_regles"
+            ),
+            inline=False,
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @bot.tree.command(name="ping", description="Teste la latence du bot")
-    async def ping(interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(f"Pong ! {round(bot.latency * 1000)} ms")
+    @app_commands.command(name="ping", description="Teste la latence du bot")
+    async def ping(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(f"Pong ! {round(self.bot.latency * 1000)} ms")
 
-    @bot.tree.command(name="paiement", description="Affiche les moyens de paiement du shop")
-    async def paiement(interaction: discord.Interaction) -> None:
+    @app_commands.command(name="paiement", description="Affiche les moyens de paiement du shop")
+    async def paiement(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(
             title="Moyens de paiement",
             description="Voici les moyens de paiement disponibles pour Yishi's Shop.",
@@ -756,83 +1087,38 @@ def register_commands(bot: YishiBot) -> None:
         embed.add_field(name="Revolut", value="https://revolut.me/souillarda", inline=False)
         await interaction.response.send_message(embed=embed)
 
-    @bot.tree.command(name="invites", description="Affiche ton nombre d'invitations")
+    @app_commands.command(name="invites", description="Affiche le nombre d'invitations")
     @app_commands.describe(membre="Membre dont tu veux voir les invitations")
     async def invites(
+        self,
         interaction: discord.Interaction,
         membre: discord.Member | None = None,
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-
         target = membre or interaction.user
-        count = bot.get_invite_count(interaction.guild.id, target.id)
+        count = self.bot.get_invite_count(interaction.guild.id, target.id)
         await interaction.response.send_message(
             f"{target.mention} a {count} invitation(s).",
             ephemeral=True,
         )
 
-    @bot.tree.command(name="dire", description="Fait parler le bot")
-    @app_commands.describe(message="Le message que le bot doit envoyer")
-    @app_commands.default_permissions(manage_messages=True)
-    async def dire(interaction: discord.Interaction, message: str) -> None:
-        if interaction.channel is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
-            return
-        await interaction.response.send_message("Message envoye.", ephemeral=True)
-        await interaction.channel.send(message)
-
-    @bot.tree.command(name="envoyer_message", description="Envoie un message dans le salon de ton choix")
-    @app_commands.describe(
-        salon="Le salon dans lequel envoyer le message",
-        message="Le message que le bot doit envoyer",
-    )
-    @app_commands.default_permissions(manage_messages=True)
-    async def envoyer_message(
-        interaction: discord.Interaction,
-        salon: discord.TextChannel,
-        message: str,
-    ) -> None:
-        await salon.send(message)
-        await interaction.response.send_message(
-            f"Message envoye dans {salon.mention}.",
-            ephemeral=True,
-        )
-
-    @bot.tree.command(name="annonce", description="Envoie une annonce en embed dans le salon de ton choix")
-    @app_commands.describe(
-        salon="Le salon dans lequel envoyer l'annonce",
-        titre="Le titre de l'annonce",
-        message="Le texte de l'annonce",
-    )
-    @app_commands.default_permissions(manage_messages=True)
-    async def annonce(
-        interaction: discord.Interaction,
-        salon: discord.TextChannel,
-        titre: str,
-        message: str,
-    ) -> None:
-        embed = discord.Embed(
-            title=titre,
-            description=message,
-            color=discord.Color.blurple(),
-        )
-        embed.set_footer(text=f"Annonce par {interaction.user}")
-        await salon.send(embed=embed)
-        await interaction.response.send_message(
-            f"Annonce envoyee dans {salon.mention}.",
-            ephemeral=True,
-        )
-
-    @bot.tree.command(name="userinfo", description="Affiche les informations d'un membre")
-    @app_commands.describe(membre="Le membre a afficher")
+    @app_commands.command(name="userinfo", description="Affiche les informations d'un membre")
+    @app_commands.describe(membre="Le membre à afficher")
     async def userinfo(
+        self,
         interaction: discord.Interaction,
         membre: discord.Member | None = None,
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
         member = membre or interaction.user
         embed = discord.Embed(title=f"Infos de {member}", color=discord.Color.green())
@@ -840,179 +1126,245 @@ def register_commands(bot: YishiBot) -> None:
         embed.add_field(name="ID", value=str(member.id), inline=False)
         embed.add_field(name="Nom", value=member.name, inline=True)
         embed.add_field(name="Pseudo", value=member.display_name, inline=True)
-        embed.add_field(name="Compte cree le", value=member.created_at.strftime("%d/%m/%Y %H:%M"), inline=False)
+        embed.add_field(
+            name="Compte créé le",
+            value=member.created_at.strftime("%d/%m/%Y %H:%M"),
+            inline=False,
+        )
         if member.joined_at:
-            embed.add_field(name="A rejoint le serveur le", value=member.joined_at.strftime("%d/%m/%Y %H:%M"), inline=False)
+            embed.add_field(
+                name="A rejoint le serveur le",
+                value=member.joined_at.strftime("%d/%m/%Y %H:%M"),
+                inline=False,
+            )
         await interaction.response.send_message(embed=embed)
 
-    @bot.tree.command(name="clear", description="Supprime un certain nombre de messages")
-    @app_commands.describe(nombre="Nombre de messages a supprimer")
+    @app_commands.command(name="dire", description="Fait parler le bot dans le salon actuel")
+    @app_commands.describe(message="Le message à envoyer")
     @app_commands.default_permissions(manage_messages=True)
-    async def clear(
-        interaction: discord.Interaction,
-        nombre: app_commands.Range[int, 1, 100],
-    ) -> None:
+    async def dire(self, interaction: discord.Interaction, message: str) -> None:
         if interaction.channel is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        deleted = await interaction.channel.purge(limit=nombre)
-        await interaction.followup.send(f"{len(deleted)} message(s) supprime(s).", ephemeral=True)
-
-    @bot.tree.command(name="add_membre_ticket", description="Ajoute un membre au ticket actuel")
-    @app_commands.describe(membre="Le membre a ajouter au ticket")
-    @app_commands.default_permissions(manage_channels=True)
-    async def add_membre_ticket(
-        interaction: discord.Interaction,
-        membre: discord.Member,
-    ) -> None:
-        if interaction.guild is None or interaction.channel is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
-            return
-
-        store = bot.get_ticket_store(interaction.guild.id)
-        ticket = store["channels"].get(str(interaction.channel.id))
-        if ticket is None:
             await interaction.response.send_message(
-                "Cette commande doit etre utilisee dans un ticket.",
+                "Commande indisponible ici.",
                 ephemeral=True,
             )
             return
+        await interaction.channel.send(message)
+        await interaction.response.send_message("Message envoyé.", ephemeral=True)
 
-        await interaction.channel.set_permissions(
-            membre,
-            overwrite=discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                attach_files=True,
-                embed_links=True,
-            ),
-        )
+    @app_commands.command(name="envoyer_message", description="Envoie un message dans le salon de ton choix")
+    @app_commands.describe(salon="Le salon cible", message="Le message à envoyer")
+    @app_commands.default_permissions(manage_messages=True)
+    async def envoyer_message(
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+        message: str,
+    ) -> None:
+        await salon.send(message)
         await interaction.response.send_message(
-            f"{membre.mention} a ete ajoute au ticket.",
+            f"Message envoyé dans {salon.mention}.",
             ephemeral=True,
         )
-        await interaction.channel.send(f"{membre.mention} a ete ajoute au ticket par {interaction.user.mention}.")
 
-    @bot.tree.command(name="kick", description="Expulse un membre du serveur")
-    @app_commands.describe(membre="Le membre a expulser", raison="La raison du kick")
+    @app_commands.command(name="annonce", description="Envoie une annonce en embed dans le salon de ton choix")
+    @app_commands.describe(salon="Salon cible", titre="Titre de l'annonce", message="Texte de l'annonce")
+    @app_commands.default_permissions(manage_messages=True)
+    async def annonce(
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+        titre: str,
+        message: str,
+    ) -> None:
+        embed = discord.Embed(title=titre, description=message, color=discord.Color.blurple())
+        embed.set_footer(text=f"Annonce par {interaction.user}")
+        await salon.send(embed=embed)
+        await interaction.response.send_message(
+            f"Annonce envoyée dans {salon.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="clear", description="Supprime un certain nombre de messages")
+    @app_commands.describe(nombre="Nombre de messages à supprimer")
+    @app_commands.default_permissions(manage_messages=True)
+    async def clear(
+        self,
+        interaction: discord.Interaction,
+        nombre: app_commands.Range[int, 1, 100],
+    ) -> None:
+        if not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        deleted = await interaction.channel.purge(limit=nombre)
+        await interaction.followup.send(
+            f"{len(deleted)} message(s) supprimé(s).",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="kick", description="Expulse un membre du serveur")
+    @app_commands.describe(membre="Le membre à expulser", raison="La raison du kick")
     @app_commands.default_permissions(kick_members=True)
     async def kick(
+        self,
         interaction: discord.Interaction,
         membre: discord.Member,
         raison: str = "Aucune raison fournie",
     ) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        bot_member = interaction.guild.me
+        bot_member = self.bot.get_bot_member(interaction.guild)
         if bot_member is None:
-            await interaction.response.send_message("Impossible de verifier mes permissions.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de vérifier mes permissions.",
+                ephemeral=True,
+            )
             return
         error = can_moderate(interaction.user, membre, bot_member)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
         await membre.kick(reason=raison)
-        await interaction.response.send_message(f"{membre} a ete expulse. Raison : {raison}")
+        await interaction.response.send_message(
+            f"{membre} a été expulsé. Raison : {raison}"
+        )
 
-    @bot.tree.command(name="ban", description="Bannit un membre du serveur")
-    @app_commands.describe(membre="Le membre a bannir", raison="La raison du ban")
+    @app_commands.command(name="ban", description="Bannit un membre du serveur")
+    @app_commands.describe(membre="Le membre à bannir", raison="La raison du ban")
     @app_commands.default_permissions(ban_members=True)
     async def ban(
+        self,
         interaction: discord.Interaction,
         membre: discord.Member,
         raison: str = "Aucune raison fournie",
     ) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        bot_member = interaction.guild.me
+        bot_member = self.bot.get_bot_member(interaction.guild)
         if bot_member is None:
-            await interaction.response.send_message("Impossible de verifier mes permissions.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de vérifier mes permissions.",
+                ephemeral=True,
+            )
             return
         error = can_moderate(interaction.user, membre, bot_member)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
         await membre.ban(reason=raison)
-        await interaction.response.send_message(f"{membre} a ete banni. Raison : {raison}")
+        await interaction.response.send_message(
+            f"{membre} a été banni. Raison : {raison}"
+        )
 
-    @bot.tree.command(name="mute", description="Timeout un membre pendant un certain temps")
-    @app_commands.describe(membre="Le membre a mute", minutes="Duree du timeout en minutes", raison="La raison du mute")
+    @app_commands.command(name="mute", description="Timeout un membre pendant un certain temps")
+    @app_commands.describe(
+        membre="Le membre à mute",
+        minutes="Durée du timeout en minutes",
+        raison="La raison du mute",
+    )
     @app_commands.default_permissions(moderate_members=True)
     async def mute(
+        self,
         interaction: discord.Interaction,
         membre: discord.Member,
         minutes: app_commands.Range[int, 1, 40320],
         raison: str = "Aucune raison fournie",
     ) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        bot_member = interaction.guild.me
+        bot_member = self.bot.get_bot_member(interaction.guild)
         if bot_member is None:
-            await interaction.response.send_message("Impossible de verifier mes permissions.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de vérifier mes permissions.",
+                ephemeral=True,
+            )
             return
         error = can_moderate(interaction.user, membre, bot_member)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
-        timeout_until = discord.utils.utcnow() + timedelta(minutes=minutes)
-        await membre.timeout(timeout_until, reason=raison)
-        await interaction.response.send_message(f"{membre} a ete mute pendant {minutes} minute(s). Raison : {raison}")
+        await membre.timeout(discord.utils.utcnow() + timedelta(minutes=minutes), reason=raison)
+        await interaction.response.send_message(
+            f"{membre} a été mute pendant {minutes} minute(s). Raison : {raison}"
+        )
 
-    @bot.tree.command(name="unmute", description="Retire le timeout d'un membre")
-    @app_commands.describe(membre="Le membre a unmute", raison="La raison du unmute")
+    @app_commands.command(name="unmute", description="Retire le timeout d'un membre")
+    @app_commands.describe(membre="Le membre à unmute", raison="La raison du unmute")
     @app_commands.default_permissions(moderate_members=True)
     async def unmute(
+        self,
         interaction: discord.Interaction,
         membre: discord.Member,
         raison: str = "Aucune raison fournie",
     ) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        bot_member = interaction.guild.me
+        bot_member = self.bot.get_bot_member(interaction.guild)
         if bot_member is None:
-            await interaction.response.send_message("Impossible de verifier mes permissions.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de vérifier mes permissions.",
+                ephemeral=True,
+            )
             return
         error = can_moderate(interaction.user, membre, bot_member)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
         await membre.timeout(None, reason=raison)
-        await interaction.response.send_message(f"{membre} n'est plus mute. Raison : {raison}")
+        await interaction.response.send_message(
+            f"{membre} n'est plus mute. Raison : {raison}"
+        )
 
-    @bot.tree.command(name="warn", description="Avertit un membre avec une raison")
-    @app_commands.describe(membre="Le membre a avertir", raison="La raison de l'avertissement")
+    @app_commands.command(name="warn", description="Avertit un membre avec une raison")
+    @app_commands.describe(membre="Le membre à avertir", raison="La raison de l'avertissement")
     @app_commands.default_permissions(moderate_members=True)
     async def warn(
+        self,
         interaction: discord.Interaction,
         membre: discord.Member,
         raison: str,
     ) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-
-        bot_member = interaction.guild.me
+        bot_member = self.bot.get_bot_member(interaction.guild)
         if bot_member is None:
-            await interaction.response.send_message("Impossible de verifier mes permissions.", ephemeral=True)
+            await interaction.response.send_message(
+                "Impossible de vérifier mes permissions.",
+                ephemeral=True,
+            )
             return
-
         error = can_moderate(interaction.user, membre, bot_member)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
 
-        store = bot.get_warning_store(interaction.guild.id)
-        member_key = str(membre.id)
-        if member_key not in store:
-            store[member_key] = []
-
-        store[member_key].append(
+        store = self.bot.get_warning_store(interaction.guild.id)
+        key = str(membre.id)
+        store.setdefault(key, []).append(
             {
                 "reason": raison,
                 "moderator_id": interaction.user.id,
@@ -1020,32 +1372,28 @@ def register_commands(bot: YishiBot) -> None:
                 "created_at": discord.utils.utcnow().strftime("%d/%m/%Y %H:%M"),
             }
         )
-        bot.save_warnings()
-
+        self.bot.save_warnings()
         await interaction.response.send_message(
-            f"{membre.mention} a recu un avertissement. Raison : {raison}"
+            f"{membre.mention} a reçu un avertissement. Raison : {raison}"
         )
 
-    @bot.tree.command(name="list_warn", description="Affiche les avertissements d'un membre")
+    @app_commands.command(name="list_warn", description="Affiche les avertissements d'un membre")
     @app_commands.describe(membre="Le membre dont tu veux voir les avertissements")
     @app_commands.default_permissions(moderate_members=True)
-    async def list_warn(
-        interaction: discord.Interaction,
-        membre: discord.Member,
-    ) -> None:
+    async def list_warn(self, interaction: discord.Interaction, membre: discord.Member) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-
-        store = bot.get_warning_store(interaction.guild.id)
-        warnings = store.get(str(membre.id), [])
+        warnings = self.bot.get_warning_store(interaction.guild.id).get(str(membre.id), [])
         if not warnings:
             await interaction.response.send_message(
                 f"{membre.mention} n'a aucun avertissement.",
                 ephemeral=True,
             )
             return
-
         embed = discord.Embed(
             title=f"Avertissements de {membre}",
             color=discord.Color.orange(),
@@ -1062,31 +1410,73 @@ def register_commands(bot: YishiBot) -> None:
             )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @bot.tree.command(name="giveaway_create", description="Cree un giveaway")
+    @app_commands.command(name="add_membre_ticket", description="Ajoute un membre au ticket actuel")
+    @app_commands.describe(membre="Le membre à ajouter au ticket")
+    @app_commands.default_permissions(manage_channels=True)
+    async def add_membre_ticket(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
+            return
+        ticket = self.bot.get_ticket_store(interaction.guild.id)["channels"].get(str(interaction.channel.id))
+        if ticket is None:
+            await interaction.response.send_message(
+                "Cette commande doit être utilisée dans un ticket.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.channel.set_permissions(
+            membre,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+        )
+        await interaction.response.send_message(
+            f"{membre.mention} a été ajouté au ticket.",
+            ephemeral=True,
+        )
+        await interaction.channel.send(
+            f"{membre.mention} a été ajouté au ticket par {interaction.user.mention}."
+        )
+
+    @app_commands.command(name="giveaway_create", description="Crée un giveaway")
     @app_commands.describe(
-        salon="Salon dans lequel envoyer le giveaway",
+        salon="Salon du giveaway",
         prix="Prix du giveaway",
-        duree="Duree du giveaway. Exemple : 10m, 2h, 1d",
+        duree="Exemple : 10m, 2h, 1d",
         gagnants="Nombre de gagnants",
-        invitations_minimum="Nombre minimum d'invitations pour participer",
     )
     @app_commands.default_permissions(manage_guild=True)
     async def giveaway_create(
+        self,
         interaction: discord.Interaction,
         salon: discord.TextChannel,
         prix: str,
         duree: str,
         gagnants: app_commands.Range[int, 1, 20],
-        invitations_minimum: app_commands.Range[int, 0, 1000],
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
 
         seconds = parse_duration(duree)
         if seconds is None:
             await interaction.response.send_message(
-                "Duree invalide. Utilise le format `10m`, `2h` ou `1d`.",
+                "Durée invalide. Utilise `10m`, `2h` ou `1d`.",
                 ephemeral=True,
             )
             return
@@ -1098,272 +1488,263 @@ def register_commands(bot: YishiBot) -> None:
                 f"Prix : **{prix}**\n"
                 f"Gagnant(s) : **{gagnants}**\n"
                 f"Fin : <t:{end_at}:R>\n"
-                f"Invitations requises : **{invitations_minimum}**\n\n"
+                "Chances bonus : **rôles invitations + Server Booster**\n\n"
                 "Clique sur Participer pour rejoindre le giveaway."
             ),
             color=discord.Color.gold(),
         )
-        message = await salon.send(embed=embed, view=GiveawayView(bot))
+        message = await salon.send(embed=embed, view=GiveawayView(self.bot))
 
-        store = bot.get_giveaway_store(interaction.guild.id)
+        store = self.bot.get_giveaway_store(interaction.guild.id)
         store[str(message.id)] = {
             "message_id": message.id,
             "channel_id": salon.id,
             "prize": prix,
             "winners_count": int(gagnants),
-            "min_invites": int(invitations_minimum),
             "participants": [],
             "winners": [],
             "end_at": end_at,
             "status": "active",
             "created_by": interaction.user.id,
         }
-        bot.save_giveaways()
-        bot.schedule_giveaway_end(interaction.guild.id, message.id, end_at)
-
+        self.bot.save_giveaways()
+        self.bot.schedule_giveaway_end(interaction.guild.id, message.id, end_at)
         await interaction.response.send_message(
-            f"Giveaway cree dans {salon.mention}. ID du message : `{message.id}`",
+            f"Giveaway créé dans {salon.mention}. ID du message : `{message.id}`",
             ephemeral=True,
         )
 
-    @bot.tree.command(name="giveaway_end", description="Termine un giveaway maintenant")
+    @app_commands.command(name="giveaway_end", description="Termine un giveaway maintenant")
     @app_commands.describe(message_id="ID du message du giveaway")
     @app_commands.default_permissions(manage_guild=True)
-    async def giveaway_end(interaction: discord.Interaction, message_id: str) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+    async def giveaway_end(self, interaction: discord.Interaction, message_id: str) -> None:
+        if interaction.guild is None or not message_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
             return
+        await self.bot.finish_giveaway(interaction.guild.id, int(message_id))
+        await interaction.response.send_message(
+            "Giveaway terminé si l'ID était valide.",
+            ephemeral=True,
+        )
 
-        if not message_id.isdigit():
-            await interaction.response.send_message("L'ID du message doit etre un nombre.", ephemeral=True)
-            return
-
-        await bot.finish_giveaway(interaction.guild.id, int(message_id), ended_by=interaction.user)
-        await interaction.response.send_message("Giveaway termine si l'ID etait valide.", ephemeral=True)
-
-    @bot.tree.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
+    @app_commands.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
     @app_commands.describe(message_id="ID du message du giveaway")
     @app_commands.default_permissions(manage_guild=True)
-    async def giveaway_reroll(interaction: discord.Interaction, message_id: str) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+    async def giveaway_reroll(self, interaction: discord.Interaction, message_id: str) -> None:
+        if interaction.guild is None or not message_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
             return
-
-        if not message_id.isdigit():
-            await interaction.response.send_message("L'ID du message doit etre un nombre.", ephemeral=True)
-            return
-
-        winners = await bot.reroll_giveaway(interaction.guild.id, int(message_id))
+        winners = await self.bot.reroll_giveaway(interaction.guild.id, int(message_id))
         if not winners:
-            await interaction.response.send_message("Aucun nouveau gagnant valide trouve.", ephemeral=True)
+            await interaction.response.send_message(
+                "Aucun nouveau gagnant valide trouvé.",
+                ephemeral=True,
+            )
             return
-
         mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
         await interaction.response.send_message(f"Nouveau gagnant : {mentions}")
 
-    @bot.tree.command(name="config_role_staff", description="Definit le role staff pour les tickets ouverts")
-    @app_commands.describe(role="Role qui verra les tickets ouverts")
+    @app_commands.command(name="config_role_staff", description="Définit le rôle staff pour les tickets ouverts")
+    @app_commands.describe(role="Rôle staff")
     @app_commands.default_permissions(manage_guild=True)
-    async def config_role_staff(interaction: discord.Interaction, role: discord.Role) -> None:
+    async def config_role_staff(self, interaction: discord.Interaction, role: discord.Role) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        config = bot.get_guild_config(interaction.guild.id)
+        config = self.bot.get_guild_config(interaction.guild.id)
         config["staff_role_id"] = role.id
-        bot.save_config()
-        await interaction.response.send_message(f"Le role staff des tickets ouverts est maintenant {role.mention}.", ephemeral=True)
+        self.bot.save_config()
+        await interaction.response.send_message(
+            f"Le rôle staff des tickets ouverts est maintenant {role.mention}.",
+            ephemeral=True,
+        )
 
-    @bot.tree.command(name="config_role_archive", description="Definit le role staff superieur des archives")
-    @app_commands.describe(role="Role qui verra les tickets archives")
+    @app_commands.command(name="config_role_archive", description="Définit le rôle staff supérieur des archives")
+    @app_commands.describe(role="Rôle archives")
     @app_commands.default_permissions(manage_guild=True)
-    async def config_role_archive(interaction: discord.Interaction, role: discord.Role) -> None:
+    async def config_role_archive(self, interaction: discord.Interaction, role: discord.Role) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        config = bot.get_guild_config(interaction.guild.id)
+        config = self.bot.get_guild_config(interaction.guild.id)
         config["archive_role_id"] = role.id
-        bot.save_config()
-        await interaction.response.send_message(f"Le role des archives est maintenant {role.mention}.", ephemeral=True)
+        self.bot.save_config()
+        await interaction.response.send_message(
+            f"Le rôle des archives est maintenant {role.mention}.",
+            ephemeral=True,
+        )
 
-    @bot.tree.command(name="config_categorie_tickets", description="Definit la categorie des tickets ouverts")
-    @app_commands.describe(categorie="Categorie des tickets ouverts")
+    @app_commands.command(name="config_categorie_tickets", description="Définit la catégorie des tickets ouverts")
+    @app_commands.describe(categorie="Catégorie tickets")
     @app_commands.default_permissions(manage_guild=True)
     async def config_categorie_tickets(
+        self,
         interaction: discord.Interaction,
         categorie: discord.CategoryChannel,
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        config = bot.get_guild_config(interaction.guild.id)
+        config = self.bot.get_guild_config(interaction.guild.id)
         config["ticket_category_id"] = categorie.id
-        bot.save_config()
-        await interaction.response.send_message(f"La categorie des tickets ouverts est maintenant {categorie.name}.", ephemeral=True)
+        self.bot.save_config()
+        await interaction.response.send_message(
+            f"La catégorie des tickets ouverts est maintenant {categorie.name}.",
+            ephemeral=True,
+        )
 
-    @bot.tree.command(name="config_categorie_archives", description="Definit la categorie des tickets archives")
-    @app_commands.describe(categorie="Categorie des tickets archives")
+    @app_commands.command(name="config_categorie_archives", description="Définit la catégorie des tickets archivés")
+    @app_commands.describe(categorie="Catégorie archives")
     @app_commands.default_permissions(manage_guild=True)
     async def config_categorie_archives(
+        self,
         interaction: discord.Interaction,
         categorie: discord.CategoryChannel,
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        config = bot.get_guild_config(interaction.guild.id)
+        config = self.bot.get_guild_config(interaction.guild.id)
         config["archive_category_id"] = categorie.id
-        bot.save_config()
-        await interaction.response.send_message(f"La categorie des tickets archives est maintenant {categorie.name}.", ephemeral=True)
+        self.bot.save_config()
+        await interaction.response.send_message(
+            f"La catégorie des tickets archivés est maintenant {categorie.name}.",
+            ephemeral=True,
+        )
 
-    @bot.tree.command(name="config_salon_bienvenue", description="Definit le salon des messages de bienvenue")
-    @app_commands.describe(salon="Salon dans lequel envoyer les messages de bienvenue")
+    @app_commands.command(name="config_salon_bienvenue", description="Définit le salon des messages de bienvenue")
+    @app_commands.describe(salon="Salon de bienvenue")
     @app_commands.default_permissions(manage_guild=True)
     async def config_salon_bienvenue(
+        self,
         interaction: discord.Interaction,
         salon: discord.TextChannel,
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        config = bot.get_guild_config(interaction.guild.id)
+        config = self.bot.get_guild_config(interaction.guild.id)
         config["welcome_channel_id"] = salon.id
-        bot.save_config()
+        self.bot.save_config()
         await interaction.response.send_message(
             f"Le salon de bienvenue est maintenant {salon.mention}.",
             ephemeral=True,
         )
 
-    @bot.tree.command(name="config_role_regles", description="Definit le role donne apres acceptation du reglement")
-    @app_commands.describe(role="Role a donner quand un membre accepte le reglement")
+    @app_commands.command(name="config_role_regles", description="Définit le rôle donné après acceptation du règlement")
+    @app_commands.describe(role="Rôle des règles")
     @app_commands.default_permissions(manage_guild=True)
-    async def config_role_regles(interaction: discord.Interaction, role: discord.Role) -> None:
+    async def config_role_regles(self, interaction: discord.Interaction, role: discord.Role) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        config = bot.get_guild_config(interaction.guild.id)
+        config = self.bot.get_guild_config(interaction.guild.id)
         config["rules_role_id"] = role.id
-        bot.save_config()
+        self.bot.save_config()
         await interaction.response.send_message(
-            f"Le role des regles est maintenant {role.mention}.",
+            f"Le rôle des règles est maintenant {role.mention}.",
             ephemeral=True,
         )
 
-    @bot.tree.command(name="envoyer_reglement", description="Envoie le reglement officiel du serveur")
-    @app_commands.describe(salon="Salon dans lequel envoyer le reglement")
+    @app_commands.command(name="envoyer_reglement", description="Envoie le règlement officiel du serveur")
+    @app_commands.describe(salon="Salon du règlement")
     @app_commands.default_permissions(manage_guild=True)
     async def envoyer_reglement(
+        self,
         interaction: discord.Interaction,
         salon: discord.TextChannel,
     ) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
-            return
-
-        await salon.send(
-            "📜 𝐑èglement Officiel\n"
-            "Bienvenue sur Yishi’s Shop.\n"
-            "Afin de garantir une expérience sérieuse, fluide et agréable à l’ensemble des membres, chaque utilisateur est tenu de respecter le règlement ci-dessous.\n\n"
-            "✧ 1. Respect & comportement\n"
-            "Le respect envers tous les membres du serveur est obligatoire.\n"
-            "Tout comportement toxique, irrespectueux, provocateur, agressif, insultant ou humiliant est strictement interdit.\n\n"
-            "✧ 2. Spam & flood interdits\n"
-            "Les messages répétitifs, le flood, le spam, les abus de majuscules, les mentions abusives ainsi que l’utilisation excessive d’emojis sont interdits.\n\n"
-            "✧ 3. Contenus inappropriés\n"
-            "Tout contenu choquant, violent, haineux, discriminatoire, sexuel, offensant ou inadapté au serveur est formellement interdit.\n\n"
-            "✧ 4. Publicité non autorisée\n"
-            "La publicité, sous quelque forme que ce soit, est interdite sans autorisation préalable du staff.\n"
-            "Cela inclut les serveurs Discord, shops, réseaux sociaux, sites, services ou messages privés à but promotionnel.\n\n"
-            "✧ 5. Utilisation correcte des salons\n"
-            "Chaque salon possède une utilité précise.\n"
-            "Merci de respecter leur fonction et d’éviter le hors-sujet afin de préserver une organisation claire et professionnelle.\n\n"
-            "✧ 6. Commandes sérieuses uniquement\n"
-            "Les commandes, demandes ou réservations doivent être sérieuses.\n"
-            "Toute perte de temps volontaire, troll, faux intérêt ou abus envers le staff pourra être sanctionné.\n\n"
-            "✧ 7. Tolérance zéro envers les arnaques\n"
-            "Toute tentative d’arnaque, fraude, faux paiement, fausse preuve, chargeback, manipulation ou tromperie entraînera une sanction immédiate pouvant aller jusqu’au bannissement définitif.\n\n"
-            "✧ 8. Paiements & preuves\n"
-            "Les consignes données par le staff concernant les paiements, preuves, validations et tickets doivent être respectées.\n"
-            "Toute tentative de contourner le système ou de fournir de fausses informations est interdite.\n\n"
-            "✧ 9. Respect du staff\n"
-            "Le staff est présent pour assurer le bon fonctionnement du serveur.\n"
-            "Le manque de respect, la provocation, l’abus ou le refus délibéré de coopération avec l’équipe de modération ne seront pas tolérés.\n\n"
-            "✧ 10. Tickets & support\n"
-            "Les tickets doivent être ouverts uniquement pour une raison valable : commande, question importante, assistance ou problème réel.\n"
-            "Tout abus de ticket pourra entraîner une restriction d’accès au support.\n\n"
-            "✧ 11. Sécurité personnelle\n"
-            "Ne partagez jamais vos informations sensibles : mots de passe, codes, adresses e-mail, moyens de paiement ou données privées.\n"
-            "Vous êtes responsable de la sécurité de votre compte et de vos échanges.\n\n"
-            "✧ 12. Transactions & services\n"
-            "Les échanges et services proposés au sein du shop doivent rester clairs, honnêtes et conformes à ce qui est annoncé.\n"
-            "Toute tentative de nuisance, de faux deal ou de perturbation volontaire sera sanctionnée.\n\n"
-            "✧ 13. Sanctions\n"
-            "Le non-respect du règlement peut entraîner, selon la gravité des faits :\n\n"
-            "avertissement\n"
-            "mute\n"
-            "exclusion temporaire\n"
-            "bannissement définitif\n\n"
-            "Le staff se réserve le droit d’adapter les sanctions selon la situation.\n\n"
-            "✧ 14. Acceptation du règlement\n"
-            "En restant sur Yishi’s Shop, vous acceptez automatiquement l’ensemble des règles mentionnées ci-dessus et vous engagez à les respecter pleinement.\n\n"
-            "Merci de votre confiance et bon shopping sur Yishi’s Shop"
-        )
+        await self.bot.send_rules_text(salon)
         await interaction.response.send_message(
-            f"Le reglement a ete envoye dans {salon.mention}.",
+            f"Le règlement a été envoyé dans {salon.mention}.",
             ephemeral=True,
         )
 
-    @bot.tree.command(name="envoyer_message_regles", description="Envoie le message de validation du reglement")
-    @app_commands.describe(salon="Salon dans lequel envoyer le message de validation")
+    @app_commands.command(name="envoyer_message_regles", description="Envoie le message de validation du règlement")
+    @app_commands.describe(salon="Salon du message de validation")
     @app_commands.default_permissions(manage_guild=True)
     async def envoyer_message_regles(
+        self,
         interaction: discord.Interaction,
         salon: discord.TextChannel,
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
-            return
-
-        config = bot.get_guild_config(interaction.guild.id)
-        if config.get("rules_role_id") is None:
             await interaction.response.send_message(
-                "Configure d'abord le role a donner avec /config_role_regles.",
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
+            return
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if config["rules_role_id"] is None:
+            await interaction.response.send_message(
+                "Configure d'abord le rôle avec /config_role_regles.",
                 ephemeral=True,
             )
             return
 
-        message = await salon.send(
-            "En réagissant avec ✅ à ce message, tu acceptes le règlement du serveur et tu obtiens l’accès complet au serveur."
-        )
+        message = await salon.send(RULES_ACCEPT_TEXT)
         await message.add_reaction("✅")
-
         config["rules_message_id"] = message.id
         config["rules_channel_id"] = salon.id
-        bot.save_config()
-
+        self.bot.save_config()
         await interaction.response.send_message(
-            f"Le message de validation a ete envoye dans {salon.mention}.",
+            f"Le message de validation a été envoyé dans {salon.mention}.",
             ephemeral=True,
         )
 
-    @bot.tree.command(name="envoyer_panel_tickets", description="Envoie le panneau interactif de tickets")
-    @app_commands.describe(salon="Salon dans lequel envoyer le panneau")
+    @app_commands.command(name="envoyer_panel_tickets", description="Envoie le panneau interactif de tickets")
+    @app_commands.describe(salon="Salon du panneau tickets")
     @app_commands.default_permissions(manage_guild=True)
     async def envoyer_panel_tickets(
+        self,
         interaction: discord.Interaction,
         salon: discord.TextChannel,
     ) -> None:
         if interaction.guild is None:
-            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
             return
-        config = bot.get_guild_config(interaction.guild.id)
-        required = [
-            config["staff_role_id"],
-            config["archive_role_id"],
-            config["ticket_category_id"],
-            config["archive_category_id"],
-        ]
-        if not all(required):
-            await interaction.response.send_message("Configure d'abord les roles et categories avant d'envoyer le panneau.", ephemeral=True)
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if not all(
+            [
+                config["staff_role_id"],
+                config["archive_role_id"],
+                config["ticket_category_id"],
+                config["archive_category_id"],
+            ]
+        ):
+            await interaction.response.send_message(
+                "Configure d'abord les rôles et catégories des tickets.",
+                ephemeral=True,
+            )
             return
-        await salon.send(embed=build_ticket_panel_embed(), view=TicketPanelView(bot))
-        await interaction.response.send_message(f"Panneau de tickets envoye dans {salon.mention}.", ephemeral=True)
+
+        await salon.send(embed=build_ticket_panel_embed(), view=TicketPanelView(self.bot))
+        await interaction.response.send_message(
+            f"Panneau de tickets envoyé dans {salon.mention}.",
+            ephemeral=True,
+        )
+
+
+def create_bot() -> YishiBot:
+    return YishiBot()
