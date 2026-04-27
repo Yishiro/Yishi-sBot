@@ -907,9 +907,13 @@ class YishiBot(commands.Bot):
         self.cancel_giveaway_task(guild_id, message_id)
 
         if winners:
-            mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
+            winner_names: list[str] = []
+            for winner_id in winners:
+                member = guild.get_member(winner_id)
+                winner_names.append(member.display_name if member is not None else str(winner_id))
+            names_text = ", ".join(winner_names)
             await channel.send(
-                f"🎉 Giveaway terminé ! Gagnant(s) pour **{giveaway['prize']}** : {mentions}"
+                f"🎉 Giveaway terminé ! Gagnant(s) pour **{giveaway['prize']}** : {names_text}"
             )
         else:
             await channel.send(
