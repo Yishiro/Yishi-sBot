@@ -1053,7 +1053,7 @@ class MainCog(commands.Cog):
         )
         embed.add_field(
             name="Giveaways",
-            value="/giveaway_create\n/giveaway_end\n/giveaway_reroll",
+            value="/giveaway_create\n/giveaway_list\n/giveaway_participants\n/giveaway_end\n/giveaway_reroll",
             inline=False,
         )
         embed.add_field(
@@ -1526,6 +1526,110 @@ class MainCog(commands.Cog):
             "Giveaway terminé si l'ID était valide.",
             ephemeral=True,
         )
+
+    @app_commands.command(name="giveaway_list", description="Affiche la liste des giveaways avec leur ID")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_list(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
+            return
+
+        store = self.bot.get_giveaway_store(interaction.guild.id)
+        if not store:
+            await interaction.response.send_message(
+                "Aucun giveaway enregistré sur ce serveur.",
+                ephemeral=True,
+            )
+            return
+
+        giveaways = sorted(
+            store.values(),
+            key=lambda giveaway: int(giveaway.get("end_at", 0)),
+            reverse=True,
+        )
+
+        embed = discord.Embed(
+            title="Liste des giveaways",
+            description="Voici les IDs des giveaways avec leur prix pour les reconnaître facilement.",
+            color=discord.Color.blurple(),
+        )
+        for giveaway in giveaways[:25]:
+            status = "Actif" if giveaway.get("status") == "active" else "Terminé"
+            embed.add_field(
+                name=f"{giveaway['prize']}",
+                value=(
+                    f"ID : `{giveaway['message_id']}`\n"
+                    f"Statut : {status}\n"
+                    f"Gagnants : {giveaway['winners_count']}"
+                ),
+                inline=False,
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="giveaway_participants", description="Affiche la liste des participants d'un giveaway")
+    @app_commands.describe(message_id="ID du message du giveaway")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_participants(self, interaction: discord.Interaction, message_id: str) -> None:
+        if interaction.guild is None or not message_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
+            return
+
+        giveaway = self.bot.get_giveaway_store(interaction.guild.id).get(message_id)
+        if giveaway is None:
+            await interaction.response.send_message(
+                "Aucun giveaway trouvé avec cet ID.",
+                ephemeral=True,
+            )
+            return
+
+        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
+        if not participant_ids:
+            await interaction.response.send_message(
+                f"Aucun participant pour **{giveaway['prize']}** (`{message_id}`).",
+                ephemeral=True,
+            )
+            return
+
+        lines: list[str] = []
+        for user_id in participant_ids:
+            member = interaction.guild.get_member(user_id)
+            weight_text = ""
+            if member is not None:
+                weight_text = f" — chance x{get_member_giveaway_weight(member):g}"
+                lines.append(f"• {member.mention} (`{user_id}`){weight_text}")
+            else:
+                lines.append(f"• Utilisateur inconnu (`{user_id}`)")
+
+        chunks: list[str] = []
+        current = ""
+        for line in lines:
+            candidate = line if not current else f"{current}\n{line}"
+            if len(candidate) <= 3500:
+                current = candidate
+            else:
+                chunks.append(current)
+                current = line
+        if current:
+            chunks.append(current)
+
+        embed = discord.Embed(
+            title=f"Participants • {giveaway['prize']}",
+            description=f"ID du giveaway : `{message_id}`\nParticipants : **{len(participant_ids)}**",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Liste", value=chunks[0], inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        for extra_chunk in chunks[1:]:
+            extra_embed = discord.Embed(
+                title=f"Participants • {giveaway['prize']} (suite)",
+                color=discord.Color.gold(),
+            )
+            extra_embed.add_field(name="Liste", value=extra_chunk, inline=False)
+            await interaction.followup.send(embed=extra_embed, ephemeral=True)
 
     @app_commands.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
     @app_commands.describe(message_id="ID du message du giveaway")
