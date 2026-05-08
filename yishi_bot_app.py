@@ -3,7 +3,7 @@ import io
 import random
 import re
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 import discord
 from discord import app_commands
@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from storage import (
     CONFIG_FILE,
+    GACHA_FILE,
     GIVEAWAYS_FILE,
     INVITES_FILE,
     TICKETS_FILE,
@@ -27,6 +28,9 @@ AUTO_TICKET_CATEGORY_NAME = "Tickets"
 AUTO_ARCHIVE_CATEGORY_NAME = "Ticket-Close"
 AUTO_LOGS_CHANNEL_NAME = "📂・𝐋ogs-staff"
 AUTO_TRANSCRIPT_CHANNEL_NAME = "logs-transcript"
+AUTO_GACHA_SPIN_CHANNEL_NAME = "🎰・𝐆acha-spin"
+AUTO_GACHA_WINNER_CHANNEL_NAME = "🏆・𝐆acha-winner"
+AUTO_GACHA_LOGS_CHANNEL_NAME = "gacha-logs"
 
 INVITE_ROLE_WEIGHTS = {
     "🥉 Inviteur Bronze • 5": 1.5,
@@ -116,6 +120,201 @@ RULES_ACCEPT_TEXT = (
     "et tu obtiens l'accès complet au serveur."
 )
 LINK_PATTERN = re.compile(r"(https?://\S+|www\.\S+|discord\.gg/\S+|discord\.com/invite/\S+)", re.IGNORECASE)
+GACHA_SPIN_TYPES = ("basic", "advanced", "deluxe")
+GACHA_RARITY_COLORS = {
+    "Common": discord.Color.light_grey(),
+    "Rare": discord.Color.blue(),
+    "Epic": discord.Color.purple(),
+    "Legendary": discord.Color.gold(),
+    "Mythical": discord.Color.red(),
+}
+GACHA_RARITY_EMOJIS = {
+    "Common": "⚪",
+    "Rare": "🔵",
+    "Epic": "🟣",
+    "Legendary": "🟡",
+    "Mythical": "🔴",
+}
+GACHA_REWARDS = {
+    "basic": {
+        "Common": [
+            {"name": "Rocket", "reward_type": "Physical Fruit", "chance": 6.0},
+            {"name": "Spin", "reward_type": "Physical Fruit", "chance": 5.5},
+            {"name": "Blade", "reward_type": "Physical Fruit", "chance": 5.5},
+            {"name": "Spring", "reward_type": "Physical Fruit", "chance": 5.0},
+            {"name": "Bomb", "reward_type": "Physical Fruit", "chance": 5.0},
+            {"name": "Smoke", "reward_type": "Physical Fruit", "chance": 4.8},
+            {"name": "Spike", "reward_type": "Physical Fruit", "chance": 4.8},
+            {"name": "Flame", "reward_type": "Physical Fruit", "chance": 4.6},
+            {"name": "Ice", "reward_type": "Physical Fruit", "chance": 4.4},
+            {"name": "Sand", "reward_type": "Physical Fruit", "chance": 4.0},
+            {"name": "Dark", "reward_type": "Physical Fruit", "chance": 3.2},
+            {"name": "Eagle", "reward_type": "Physical Fruit", "chance": 2.8},
+            {"name": "Diamond", "reward_type": "Physical Fruit", "chance": 2.4},
+        ],
+        "Rare": [
+            {"name": "Light", "reward_type": "Physical Fruit", "chance": 3.6},
+            {"name": "Rubber", "reward_type": "Physical Fruit", "chance": 3.2},
+            {"name": "Ghost", "reward_type": "Physical Fruit", "chance": 2.9},
+            {"name": "Magma", "reward_type": "Physical Fruit", "chance": 2.8},
+            {"name": "Quake", "reward_type": "Physical Fruit", "chance": 2.5},
+            {"name": "Love", "reward_type": "Physical Fruit", "chance": 2.4},
+            {"name": "Creation", "reward_type": "Physical Fruit", "chance": 2.2},
+            {"name": "Spider", "reward_type": "Physical Fruit", "chance": 2.1},
+            {"name": "Sound", "reward_type": "Physical Fruit", "chance": 1.8},
+            {"name": "Phoenix", "reward_type": "Physical Fruit", "chance": 1.7},
+            {"name": "Pain", "reward_type": "Physical Fruit", "chance": 1.5},
+            {"name": "Blizzard", "reward_type": "Physical Fruit", "chance": 1.3},
+        ],
+        "Epic": [
+            {"name": "Buddha", "reward_type": "Physical Fruit", "chance": 2.1},
+            {"name": "Portal", "reward_type": "Physical Fruit", "chance": 1.8},
+            {"name": "Gravity", "reward_type": "Physical Fruit", "chance": 1.4},
+            {"name": "Mammoth", "reward_type": "Physical Fruit", "chance": 1.2},
+            {"name": "T-Rex", "reward_type": "Physical Fruit", "chance": 1.1},
+            {"name": "Shadow", "reward_type": "Physical Fruit", "chance": 1.0},
+            {"name": "Venom", "reward_type": "Physical Fruit", "chance": 1.0},
+            {"name": "Spirit", "reward_type": "Physical Fruit", "chance": 0.9},
+            {"name": "Lightning", "reward_type": "Physical Fruit", "chance": 0.5},
+        ],
+        "Legendary": [
+            {"name": "Dough", "reward_type": "Physical Fruit", "chance": 0.70},
+            {"name": "Gas", "reward_type": "Physical Fruit", "chance": 0.55},
+            {"name": "Tiger", "reward_type": "Physical Fruit", "chance": 0.50},
+            {"name": "Yeti", "reward_type": "Physical Fruit", "chance": 0.45},
+            {"name": "Control", "reward_type": "Physical Fruit", "chance": 0.40},
+            {"name": "Kitsune", "reward_type": "Physical Fruit", "chance": 0.40},
+        ],
+    },
+    "advanced": {
+        "Common": [
+            {"name": "Rocket", "reward_type": "Physical Fruit", "chance": 4.3},
+            {"name": "Spin", "reward_type": "Physical Fruit", "chance": 4.0},
+            {"name": "Blade", "reward_type": "Physical Fruit", "chance": 3.9},
+            {"name": "Spring", "reward_type": "Physical Fruit", "chance": 3.7},
+            {"name": "Bomb", "reward_type": "Physical Fruit", "chance": 3.6},
+            {"name": "Smoke", "reward_type": "Physical Fruit", "chance": 3.4},
+            {"name": "Spike", "reward_type": "Physical Fruit", "chance": 3.3},
+            {"name": "Flame", "reward_type": "Physical Fruit", "chance": 3.2},
+            {"name": "Ice", "reward_type": "Physical Fruit", "chance": 3.1},
+            {"name": "Sand", "reward_type": "Physical Fruit", "chance": 2.7},
+            {"name": "Dark", "reward_type": "Physical Fruit", "chance": 2.3},
+            {"name": "Eagle", "reward_type": "Physical Fruit", "chance": 2.0},
+            {"name": "Diamond", "reward_type": "Physical Fruit", "chance": 1.5},
+        ],
+        "Rare": [
+            {"name": "Light", "reward_type": "Physical Fruit", "chance": 4.0},
+            {"name": "Rubber", "reward_type": "Physical Fruit", "chance": 3.5},
+            {"name": "Ghost", "reward_type": "Physical Fruit", "chance": 3.2},
+            {"name": "Magma", "reward_type": "Physical Fruit", "chance": 3.0},
+            {"name": "Quake", "reward_type": "Physical Fruit", "chance": 2.8},
+            {"name": "Love", "reward_type": "Physical Fruit", "chance": 2.7},
+            {"name": "Creation", "reward_type": "Physical Fruit", "chance": 2.5},
+            {"name": "Spider", "reward_type": "Physical Fruit", "chance": 2.3},
+            {"name": "Sound", "reward_type": "Physical Fruit", "chance": 2.0},
+            {"name": "Phoenix", "reward_type": "Physical Fruit", "chance": 1.8},
+            {"name": "Pain", "reward_type": "Physical Fruit", "chance": 1.6},
+            {"name": "Blizzard", "reward_type": "Physical Fruit", "chance": 1.6},
+        ],
+        "Epic": [
+            {"name": "Buddha", "reward_type": "Physical Fruit", "chance": 3.7},
+            {"name": "Portal", "reward_type": "Physical Fruit", "chance": 3.1},
+            {"name": "Gravity", "reward_type": "Physical Fruit", "chance": 2.3},
+            {"name": "Mammoth", "reward_type": "Physical Fruit", "chance": 2.1},
+            {"name": "T-Rex", "reward_type": "Physical Fruit", "chance": 2.0},
+            {"name": "Shadow", "reward_type": "Physical Fruit", "chance": 1.8},
+            {"name": "Venom", "reward_type": "Physical Fruit", "chance": 1.8},
+            {"name": "Spirit", "reward_type": "Physical Fruit", "chance": 1.9},
+            {"name": "2x Boss Drops Chance", "reward_type": "Gamepass", "chance": 1.8},
+            {"name": "Lightning", "reward_type": "Physical Fruit", "chance": 1.5},
+        ],
+        "Legendary": [
+            {"name": "Kitsune", "reward_type": "Physical Fruit", "chance": 0.40},
+            {"name": "Fast Boats", "reward_type": "Gamepass", "chance": 0.60},
+            {"name": "2x Money", "reward_type": "Gamepass", "chance": 0.75},
+            {"name": "2x Mastery", "reward_type": "Gamepass", "chance": 0.85},
+            {"name": "Control", "reward_type": "Physical Fruit", "chance": 0.95},
+            {"name": "Yeti", "reward_type": "Physical Fruit", "chance": 1.00},
+            {"name": "Tiger", "reward_type": "Physical Fruit", "chance": 1.05},
+            {"name": "Gas", "reward_type": "Physical Fruit", "chance": 1.15},
+            {"name": "Dough", "reward_type": "Physical Fruit", "chance": 1.25},
+        ],
+    },
+    "deluxe": {
+        "Common": [
+            {"name": "Rocket", "reward_type": "Physical Fruit", "chance": 2.8},
+            {"name": "Spin", "reward_type": "Physical Fruit", "chance": 2.5},
+            {"name": "Blade", "reward_type": "Physical Fruit", "chance": 2.4},
+            {"name": "Spring", "reward_type": "Physical Fruit", "chance": 2.2},
+            {"name": "Bomb", "reward_type": "Physical Fruit", "chance": 2.1},
+            {"name": "Smoke", "reward_type": "Physical Fruit", "chance": 2.0},
+            {"name": "Spike", "reward_type": "Physical Fruit", "chance": 1.9},
+            {"name": "Flame", "reward_type": "Physical Fruit", "chance": 1.8},
+            {"name": "Ice", "reward_type": "Physical Fruit", "chance": 1.7},
+            {"name": "Sand", "reward_type": "Physical Fruit", "chance": 1.5},
+            {"name": "Dark", "reward_type": "Physical Fruit", "chance": 1.3},
+            {"name": "Eagle", "reward_type": "Physical Fruit", "chance": 1.0},
+            {"name": "Diamond", "reward_type": "Physical Fruit", "chance": 0.8},
+        ],
+        "Rare": [
+            {"name": "Light", "reward_type": "Physical Fruit", "chance": 3.4},
+            {"name": "Rubber", "reward_type": "Physical Fruit", "chance": 3.0},
+            {"name": "Ghost", "reward_type": "Physical Fruit", "chance": 2.8},
+            {"name": "Magma", "reward_type": "Physical Fruit", "chance": 2.6},
+            {"name": "Quake", "reward_type": "Physical Fruit", "chance": 2.4},
+            {"name": "Love", "reward_type": "Physical Fruit", "chance": 2.3},
+            {"name": "Creation", "reward_type": "Physical Fruit", "chance": 2.1},
+            {"name": "Spider", "reward_type": "Physical Fruit", "chance": 2.0},
+            {"name": "Sound", "reward_type": "Physical Fruit", "chance": 1.8},
+            {"name": "Phoenix", "reward_type": "Physical Fruit", "chance": 1.7},
+            {"name": "Pain", "reward_type": "Physical Fruit", "chance": 1.6},
+            {"name": "Blizzard", "reward_type": "Physical Fruit", "chance": 1.5},
+            {"name": "Eagle Glacier", "reward_type": "Fruit Skin", "chance": 1.5},
+            {"name": "Torment Pain", "reward_type": "Fruit Skin", "chance": 1.3},
+        ],
+        "Epic": [
+            {"name": "Buddha", "reward_type": "Physical Fruit", "chance": 3.5},
+            {"name": "Portal", "reward_type": "Physical Fruit", "chance": 3.0},
+            {"name": "Gravity", "reward_type": "Physical Fruit", "chance": 2.5},
+            {"name": "Mammoth", "reward_type": "Physical Fruit", "chance": 2.4},
+            {"name": "T-Rex", "reward_type": "Physical Fruit", "chance": 2.3},
+            {"name": "Shadow", "reward_type": "Physical Fruit", "chance": 2.1},
+            {"name": "Venom", "reward_type": "Physical Fruit", "chance": 2.1},
+            {"name": "Spirit", "reward_type": "Physical Fruit", "chance": 2.0},
+            {"name": "2x Boss Drops Chance", "reward_type": "Gamepass", "chance": 2.0},
+            {"name": "Celestial Pain", "reward_type": "Fruit Skin", "chance": 1.8},
+            {"name": "Eagle Matrix", "reward_type": "Fruit Skin", "chance": 1.6},
+            {"name": "Fiend Yeti", "reward_type": "Fruit Skin", "chance": 1.5},
+            {"name": "Ruby Diamond", "reward_type": "Fruit Skin", "chance": 1.3},
+            {"name": "Lightning", "reward_type": "Physical Fruit", "chance": 0.9},
+        ],
+        "Legendary": [
+            {"name": "Kitsune", "reward_type": "Physical Fruit", "chance": 0.45},
+            {"name": "Fast Boats", "reward_type": "Gamepass", "chance": 0.70},
+            {"name": "2x Money", "reward_type": "Gamepass", "chance": 0.85},
+            {"name": "2x Mastery", "reward_type": "Gamepass", "chance": 0.95},
+            {"name": "Portal Divin", "reward_type": "Fruit Skin", "chance": 0.95},
+            {"name": "Werewolf", "reward_type": "Fruit Skin", "chance": 1.00},
+            {"name": "Requiem Eagle", "reward_type": "Fruit Skin", "chance": 1.00},
+            {"name": "Rose Quartz Diamond", "reward_type": "Fruit Skin", "chance": 1.00},
+            {"name": "Yellow Lightning", "reward_type": "Fruit Skin", "chance": 1.00},
+            {"name": "Emerald Diamond", "reward_type": "Fruit Skin", "chance": 0.95},
+            {"name": "Topaz Diamond", "reward_type": "Fruit Skin", "chance": 0.90},
+            {"name": "Frustration Pain", "reward_type": "Fruit Skin", "chance": 0.85},
+            {"name": "Sadness Pain", "reward_type": "Fruit Skin", "chance": 0.80},
+            {"name": "Dough", "reward_type": "Physical Fruit", "chance": 0.95},
+            {"name": "Gas", "reward_type": "Physical Fruit", "chance": 0.90},
+            {"name": "Tiger", "reward_type": "Physical Fruit", "chance": 0.90},
+            {"name": "Yeti", "reward_type": "Physical Fruit", "chance": 0.90},
+            {"name": "Control", "reward_type": "Physical Fruit", "chance": 0.85},
+        ],
+        "Mythical": [
+            {"name": "Purple Lightning", "reward_type": "Fruit Skin", "chance": 1.30},
+            {"name": "Parrot Eagle", "reward_type": "Fruit Skin", "chance": 1.00},
+            {"name": "Ember Dragon", "reward_type": "Fruit Skin", "chance": 0.70},
+        ],
+    },
+}
 
 
 def parse_duration(value: str) -> int | None:
@@ -163,6 +362,9 @@ def default_config() -> dict[str, Any]:
         "welcome_channel_id": None,
         "logs_channel_id": None,
         "transcript_logs_channel_id": None,
+        "gacha_spin_channel_id": None,
+        "gacha_winner_channel_id": None,
+        "gacha_logs_channel_id": None,
         "rules_role_id": None,
         "rules_message_id": None,
         "rules_channel_id": None,
@@ -374,6 +576,14 @@ class AnnouncementModal(discord.ui.Modal, title="Création annonce"):
         )
 
 
+def default_gacha_store() -> dict[str, Any]:
+    return {
+        "inventories": {},
+        "history": [],
+        "next_claim_number": 1,
+    }
+
+
 class YishiBot(commands.Bot):
     def __init__(self) -> None:
         intents = discord.Intents.default()
@@ -386,10 +596,12 @@ class YishiBot(commands.Bot):
         self.warning_data = load_json(WARNINGS_FILE, {})
         self.invite_data = load_json(INVITES_FILE, {})
         self.giveaway_data = load_json(GIVEAWAYS_FILE, {})
+        self.gacha_data = load_json(GACHA_FILE, default_gacha_store())
 
         self.invite_cache: dict[int, dict[str, int]] = {}
         self.giveaway_tasks: dict[str, asyncio.Task] = {}
         self.pending_ticket_creations: set[tuple[int, int]] = set()
+        self.pending_gacha_spins: set[tuple[int, int]] = set()
         self.sync_done = False
 
     async def setup_hook(self) -> None:
@@ -449,8 +661,19 @@ class YishiBot(commands.Bot):
     def save_giveaways(self) -> None:
         save_json(GIVEAWAYS_FILE, self.giveaway_data)
 
+    def save_gacha(self) -> None:
+        save_json(GACHA_FILE, self.gacha_data)
+
     def get_invite_count(self, guild_id: int, user_id: int) -> int:
         return int(self.get_invite_store(guild_id).get(str(user_id), 0))
+
+    def get_gacha_inventory(self, user_id: int) -> dict[str, int]:
+        key = str(user_id)
+        inventories = self.gacha_data.setdefault("inventories", {})
+        if key not in inventories:
+            inventories[key] = {"basic": 0, "advanced": 0, "deluxe": 0}
+            self.save_gacha()
+        return inventories[key]
 
     def get_open_tickets_for_user(self, guild_id: int, user_id: int) -> list[dict[str, Any]]:
         return [
@@ -492,6 +715,21 @@ class YishiBot(commands.Bot):
             if config["transcript_logs_channel_id"]
             else None
         )
+        return channel if isinstance(channel, discord.TextChannel) else None
+
+    def get_gacha_spin_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["gacha_spin_channel_id"]) if config["gacha_spin_channel_id"] else None
+        return channel if isinstance(channel, discord.TextChannel) else None
+
+    def get_gacha_winner_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["gacha_winner_channel_id"]) if config["gacha_winner_channel_id"] else None
+        return channel if isinstance(channel, discord.TextChannel) else None
+
+    def get_gacha_logs_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["gacha_logs_channel_id"]) if config["gacha_logs_channel_id"] else None
         return channel if isinstance(channel, discord.TextChannel) else None
 
     async def log_event(
@@ -628,6 +866,222 @@ class YishiBot(commands.Bot):
             except discord.HTTPException:
                 pass
 
+    def add_gacha_spins(self, user_id: int, spin_type: str, quantity: int) -> int:
+        inventory = self.get_gacha_inventory(user_id)
+        inventory[spin_type] = int(inventory.get(spin_type, 0)) + quantity
+        self.save_gacha()
+        return inventory[spin_type]
+
+    def remove_gacha_spins(self, user_id: int, spin_type: str, quantity: int) -> int:
+        inventory = self.get_gacha_inventory(user_id)
+        current = int(inventory.get(spin_type, 0))
+        new_total = max(0, current - quantity)
+        inventory[spin_type] = new_total
+        self.save_gacha()
+        return new_total
+
+    def next_claim_number(self) -> int:
+        number = int(self.gacha_data.get("next_claim_number", 1))
+        self.gacha_data["next_claim_number"] = number + 1
+        self.save_gacha()
+        return number
+
+    def roll_gacha_rarity(self, spin_type: str) -> str:
+        roll = random.uniform(0, 100)
+        running = 0.0
+        for rarity, rewards in GACHA_REWARDS[spin_type].items():
+            running += sum(float(reward["chance"]) for reward in rewards)
+            if roll <= running:
+                return rarity
+        return list(GACHA_REWARDS[spin_type].keys())[-1]
+
+    def roll_gacha_reward(self, spin_type: str, rarity: str) -> dict[str, Any]:
+        rewards = GACHA_REWARDS[spin_type][rarity]
+        total = sum(float(reward["chance"]) for reward in rewards)
+        local_roll = random.uniform(0, total)
+        running = 0.0
+        for reward in rewards:
+            running += float(reward["chance"])
+            if local_roll <= running:
+                return reward
+        return rewards[-1]
+
+    def build_gacha_result_embed(
+        self,
+        member: discord.Member,
+        spin_type: str,
+        rarity: str,
+        reward: dict[str, Any],
+        claim_number: int,
+    ) -> discord.Embed:
+        color = GACHA_RARITY_COLORS.get(rarity, discord.Color.blurple())
+        embed = discord.Embed(
+            title=f"{GACHA_RARITY_EMOJIS.get(rarity, '🎰')} Spin Result",
+            description=f"Congratulations **{member.display_name}**!",
+            color=color,
+        )
+        embed.add_field(name="Spin Type", value=spin_type.title(), inline=True)
+        embed.add_field(name="Reward", value=reward["name"], inline=True)
+        embed.add_field(name="Rarity", value=rarity, inline=True)
+        embed.add_field(name="Type", value=reward["reward_type"], inline=True)
+        embed.add_field(name="Claim Number", value=f"`{claim_number}`", inline=True)
+        embed.add_field(
+            name="Claim",
+            value="Open a ticket and send this claim number to receive your reward.",
+            inline=False,
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        return embed
+
+    def build_gacha_log_embed(
+        self,
+        member: discord.Member,
+        spin_type: str,
+        rarity: str,
+        reward: dict[str, Any],
+        claim_number: int,
+    ) -> discord.Embed:
+        embed = discord.Embed(
+            title="📒 Gacha Log",
+            color=GACHA_RARITY_COLORS.get(rarity, discord.Color.blurple()),
+        )
+        embed.add_field(name="Player", value=f"{member.mention}\n`{member.id}`", inline=True)
+        embed.add_field(name="Spin", value=spin_type.title(), inline=True)
+        embed.add_field(name="Reward", value=reward["name"], inline=True)
+        embed.add_field(name="Rarity", value=rarity, inline=True)
+        embed.add_field(name="Type", value=reward["reward_type"], inline=True)
+        embed.add_field(name="Claim Number", value=f"`{claim_number}`", inline=True)
+        embed.set_footer(text=discord.utils.utcnow().strftime("%d/%m/%Y %H:%M"))
+        return embed
+
+    async def log_gacha_spin(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        spin_type: str,
+        rarity: str,
+        reward: dict[str, Any],
+        claim_number: int,
+    ) -> None:
+        channel = self.get_gacha_logs_channel(guild)
+        if channel is None:
+            return
+        try:
+            await channel.send(embed=self.build_gacha_log_embed(member, spin_type, rarity, reward, claim_number))
+        except discord.HTTPException:
+            pass
+
+    async def animate_gacha_rarity(
+        self,
+        message: discord.Message,
+        spin_type: str,
+        final_rarity: str,
+    ) -> None:
+        rarity_order = list(GACHA_REWARDS[spin_type].keys())
+        sequence: list[str] = []
+        for _ in range(8):
+            sequence.append(random.choice(rarity_order))
+        sequence.extend([random.choice(rarity_order), final_rarity, final_rarity])
+        delays = [0.25, 0.25, 0.30, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.65, 0.80]
+        for rarity, delay in zip(sequence, delays):
+            embed = discord.Embed(
+                title=f"{GACHA_RARITY_EMOJIS.get(rarity, '🎰')} {rarity}",
+                description=f"{spin_type.title()} Spin in progress...",
+                color=GACHA_RARITY_COLORS.get(rarity, discord.Color.blurple()),
+            )
+            await message.edit(embed=embed)
+            await asyncio.sleep(delay)
+
+    async def execute_gacha_spin(
+        self,
+        interaction: discord.Interaction,
+        spin_type: Literal["basic", "advanced", "deluxe"],
+    ) -> None:
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        gacha_channel = self.get_gacha_spin_channel(interaction.guild)
+        if gacha_channel is None or interaction.channel_id != gacha_channel.id:
+            mention = gacha_channel.mention if gacha_channel is not None else AUTO_GACHA_SPIN_CHANNEL_NAME
+            await interaction.response.send_message(
+                f"Utilise cette commande dans {mention}.",
+                ephemeral=True,
+            )
+            return
+
+        lock_key = (interaction.guild.id, interaction.user.id)
+        if lock_key in self.pending_gacha_spins:
+            await interaction.response.send_message("Tu as déjà un spin en cours.", ephemeral=True)
+            return
+
+        inventory = self.get_gacha_inventory(interaction.user.id)
+        if int(inventory.get(spin_type, 0)) <= 0:
+            await interaction.response.send_message(
+                f"Tu n'as aucun {spin_type.title()} Spin disponible.",
+                ephemeral=True,
+            )
+            return
+
+        self.pending_gacha_spins.add(lock_key)
+        try:
+            inventory[spin_type] = int(inventory.get(spin_type, 0)) - 1
+            self.save_gacha()
+
+            rarity = self.roll_gacha_rarity(spin_type)
+            reward = self.roll_gacha_reward(spin_type, rarity)
+            claim_number = self.next_claim_number()
+
+            await interaction.response.defer()
+            animation_embed = discord.Embed(
+                title="🎰 Spin Starting",
+                description=f"{interaction.user.display_name} is rolling a {spin_type.title()} Spin...",
+                color=discord.Color.blurple(),
+            )
+            animation_message = await interaction.followup.send(embed=animation_embed, wait=True)
+            await self.animate_gacha_rarity(animation_message, spin_type, rarity)
+
+            winner_channel = self.get_gacha_winner_channel(interaction.guild)
+            if winner_channel is None:
+                winner_channel = gacha_channel
+
+            result_embed = self.build_gacha_result_embed(
+                interaction.user,
+                spin_type,
+                rarity,
+                reward,
+                claim_number,
+            )
+            await winner_channel.send(embed=result_embed)
+
+            if rarity in {"Legendary", "Mythical"}:
+                await winner_channel.send(
+                    f"🌟 Big Win! {interaction.user.display_name} just won **{reward['name']}** from a **{spin_type.title()} Spin**!"
+                )
+
+            self.gacha_data.setdefault("history", []).append(
+                {
+                    "user_id": interaction.user.id,
+                    "display_name": interaction.user.display_name,
+                    "spin_type": spin_type,
+                    "reward": reward["name"],
+                    "rarity": rarity,
+                    "reward_type": reward["reward_type"],
+                    "claim_number": claim_number,
+                    "timestamp": discord.utils.utcnow().isoformat(),
+                }
+            )
+            self.save_gacha()
+            await self.log_gacha_spin(
+                interaction.guild,
+                interaction.user,
+                spin_type,
+                rarity,
+                reward,
+                claim_number,
+            )
+        finally:
+            self.pending_gacha_spins.discard(lock_key)
+
     async def ensure_ticket_config(self, guild: discord.Guild) -> None:
         config = self.get_guild_config(guild.id)
 
@@ -699,6 +1153,37 @@ class YishiBot(commands.Bot):
                 )
             config["transcript_logs_channel_id"] = transcript_logs_channel.id
         await self.configure_staff_only_channel(guild, transcript_logs_channel)
+
+        gacha_spin_channel = guild.get_channel(config["gacha_spin_channel_id"]) if config["gacha_spin_channel_id"] else None
+        if not isinstance(gacha_spin_channel, discord.TextChannel):
+            gacha_spin_channel = discord.utils.get(guild.text_channels, name=AUTO_GACHA_SPIN_CHANNEL_NAME)
+            if gacha_spin_channel is None:
+                gacha_spin_channel = await guild.create_text_channel(
+                    AUTO_GACHA_SPIN_CHANNEL_NAME,
+                    reason="Auto configuration gacha spin",
+                )
+            config["gacha_spin_channel_id"] = gacha_spin_channel.id
+
+        gacha_winner_channel = guild.get_channel(config["gacha_winner_channel_id"]) if config["gacha_winner_channel_id"] else None
+        if not isinstance(gacha_winner_channel, discord.TextChannel):
+            gacha_winner_channel = discord.utils.get(guild.text_channels, name=AUTO_GACHA_WINNER_CHANNEL_NAME)
+            if gacha_winner_channel is None:
+                gacha_winner_channel = await guild.create_text_channel(
+                    AUTO_GACHA_WINNER_CHANNEL_NAME,
+                    reason="Auto configuration gacha winners",
+                )
+            config["gacha_winner_channel_id"] = gacha_winner_channel.id
+
+        gacha_logs_channel = guild.get_channel(config["gacha_logs_channel_id"]) if config["gacha_logs_channel_id"] else None
+        if not isinstance(gacha_logs_channel, discord.TextChannel):
+            gacha_logs_channel = discord.utils.get(guild.text_channels, name=AUTO_GACHA_LOGS_CHANNEL_NAME)
+            if gacha_logs_channel is None:
+                gacha_logs_channel = await guild.create_text_channel(
+                    AUTO_GACHA_LOGS_CHANNEL_NAME,
+                    reason="Auto configuration gacha logs",
+                )
+            config["gacha_logs_channel_id"] = gacha_logs_channel.id
+        await self.configure_staff_only_channel(guild, gacha_logs_channel)
 
         self.save_config()
 
@@ -1573,7 +2058,7 @@ class MainCog(commands.Cog):
         embed = discord.Embed(title="Commandes", color=discord.Color.blurple())
         embed.add_field(
             name="Général",
-            value="/aide\n/ping\n/paiement\n/invites\n/userinfo\n/stats_membre",
+            value="/aide\n/ping\n/paiement\n/invites\n/userinfo\n/stats_membre\n/spin_stock",
             inline=False,
         )
         embed.add_field(
@@ -1594,6 +2079,11 @@ class MainCog(commands.Cog):
         embed.add_field(
             name="Giveaways",
             value="/giveaway_create\n/giveaway_list\n/giveaway_end\n/giveaway_reroll",
+            inline=False,
+        )
+        embed.add_field(
+            name="Gacha",
+            value="/basic\n/advanced\n/deluxe\n/basic_add\n/advanced_add\n/deluxe_add\n/spin_remove\n/spin_log",
             inline=False,
         )
         embed.add_field(
@@ -1718,6 +2208,190 @@ class MainCog(commands.Cog):
         embed.add_field(name="Tickets ouverts", value=str(open_tickets), inline=True)
         embed.add_field(name="Tickets archivés", value=str(archived_tickets), inline=True)
         embed.add_field(name="Giveaways gagnés", value=str(giveaways_won), inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="spin_stock", description="Affiche le stock de spins")
+    @app_commands.describe(membre="Membre à afficher")
+    async def spin_stock(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member | None = None,
+    ) -> None:
+        if membre is not None:
+            inventory = self.bot.get_gacha_inventory(membre.id)
+            embed = discord.Embed(
+                title=f"Stock de {membre.display_name}",
+                color=discord.Color.gold(),
+            )
+            embed.add_field(name="Basic", value=str(inventory.get("basic", 0)), inline=True)
+            embed.add_field(name="Advanced", value=str(inventory.get("advanced", 0)), inline=True)
+            embed.add_field(name="Deluxe", value=str(inventory.get("deluxe", 0)), inline=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        inventories = self.bot.gacha_data.get("inventories", {})
+        if not inventories:
+            await interaction.response.send_message("Aucun stock de spin enregistré.", ephemeral=True)
+            return
+
+        lines: list[str] = []
+        for user_id, inventory in inventories.items():
+            total = int(inventory.get("basic", 0)) + int(inventory.get("advanced", 0)) + int(inventory.get("deluxe", 0))
+            if total <= 0:
+                continue
+            member_obj = interaction.guild.get_member(int(user_id)) if interaction.guild is not None else None
+            name = member_obj.display_name if member_obj is not None else user_id
+            lines.append(
+                f"• {name} — Basic: {inventory.get('basic', 0)} | Advanced: {inventory.get('advanced', 0)} | Deluxe: {inventory.get('deluxe', 0)}"
+            )
+        if not lines:
+            await interaction.response.send_message("Aucun stock de spin actif.", ephemeral=True)
+            return
+        embed = discord.Embed(title="Stock global des spins", description="\n".join(lines[:30]), color=discord.Color.gold())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="basic", description="Utilise un Basic Spin")
+    async def basic(self, interaction: discord.Interaction) -> None:
+        await self.bot.execute_gacha_spin(interaction, "basic")
+
+    @app_commands.command(name="advanced", description="Utilise un Advanced Spin")
+    async def advanced(self, interaction: discord.Interaction) -> None:
+        await self.bot.execute_gacha_spin(interaction, "advanced")
+
+    @app_commands.command(name="deluxe", description="Utilise un Deluxe Spin")
+    async def deluxe(self, interaction: discord.Interaction) -> None:
+        await self.bot.execute_gacha_spin(interaction, "deluxe")
+
+    @app_commands.command(name="basic_add", description="Ajoute des Basic Spins à un joueur")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter")
+    @app_commands.default_permissions(manage_guild=True)
+    async def basic_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 100],
+    ) -> None:
+        total = self.bot.add_gacha_spins(membre.id, "basic", int(quantite))
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                "basic",
+                "Stock Update",
+                {"name": f"+{quantite} Basic Spin(s)", "reward_type": f"Total: {total}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} Basic Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="advanced_add", description="Ajoute des Advanced Spins à un joueur")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter")
+    @app_commands.default_permissions(manage_guild=True)
+    async def advanced_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 100],
+    ) -> None:
+        total = self.bot.add_gacha_spins(membre.id, "advanced", int(quantite))
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                "advanced",
+                "Stock Update",
+                {"name": f"+{quantite} Advanced Spin(s)", "reward_type": f"Total: {total}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} Advanced Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="deluxe_add", description="Ajoute des Deluxe Spins à un joueur")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter")
+    @app_commands.default_permissions(manage_guild=True)
+    async def deluxe_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 100],
+    ) -> None:
+        total = self.bot.add_gacha_spins(membre.id, "deluxe", int(quantite))
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                "deluxe",
+                "Stock Update",
+                {"name": f"+{quantite} Deluxe Spin(s)", "reward_type": f"Total: {total}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} Deluxe Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="spin_remove", description="Retire des spins à un joueur")
+    @app_commands.describe(membre="Membre cible", type="Type de spin", quantite="Quantité à retirer")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.choices(
+        type=[
+            app_commands.Choice(name="Basic", value="basic"),
+            app_commands.Choice(name="Advanced", value="advanced"),
+            app_commands.Choice(name="Deluxe", value="deluxe"),
+        ]
+    )
+    async def spin_remove(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        type: app_commands.Choice[str],
+        quantite: app_commands.Range[int, 1, 100],
+    ) -> None:
+        total = self.bot.remove_gacha_spins(membre.id, type.value, int(quantite))
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                type.value,
+                "Stock Update",
+                {"name": f"-{quantite} {type.name} Spin(s)", "reward_type": f"Total: {total}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} {type.name} Spin(s) retirés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="spin_log", description="Affiche l'historique des spins")
+    @app_commands.describe(membre="Membre à filtrer")
+    @app_commands.default_permissions(manage_guild=True)
+    async def spin_log(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member | None = None,
+    ) -> None:
+        history = self.bot.gacha_data.get("history", [])
+        if membre is not None:
+            history = [entry for entry in history if int(entry["user_id"]) == membre.id]
+        if not history:
+            await interaction.response.send_message("Aucun spin enregistré.", ephemeral=True)
+            return
+
+        latest = list(reversed(history[-20:]))
+        lines = []
+        for entry in latest:
+            lines.append(
+                f"• #{entry['claim_number']} — {entry['display_name']} — {entry['spin_type'].title()} — {entry['reward']} ({entry['rarity']})"
+            )
+        embed = discord.Embed(
+            title="Historique des spins" if membre is None else f"Historique de {membre.display_name}",
+            description="\n".join(lines),
+            color=discord.Color.blurple(),
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="dire", description="Fait parler le bot dans le salon actuel")
