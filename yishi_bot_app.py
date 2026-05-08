@@ -112,6 +112,7 @@ RULES_ACCEPT_TEXT = (
     "En réagissant avec ✅ à ce message, tu acceptes le règlement du serveur "
     "et tu obtiens l'accès complet au serveur."
 )
+LINK_PATTERN = re.compile(r"(https?://\S+|www\.\S+|discord\.gg/\S+|discord\.com/invite/\S+)", re.IGNORECASE)
 
 
 def parse_duration(value: str) -> int | None:
@@ -157,6 +158,7 @@ def default_config() -> dict[str, Any]:
         "ticket_category_id": None,
         "archive_category_id": None,
         "welcome_channel_id": None,
+        "logs_channel_id": None,
         "rules_role_id": None,
         "rules_message_id": None,
         "rules_channel_id": None,
@@ -275,10 +277,97 @@ class GiveawayJoinButton(discord.ui.Button):
         await self.bot.join_giveaway(interaction)
 
 
+class GiveawayParticipantsButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            label="Participants",
+            style=discord.ButtonStyle.secondary,
+            emoji="👥",
+            custom_id="giveaway_participants_button",
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.show_giveaway_participants(interaction)
+
+
+class GiveawayChanceButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            label="Mes chances",
+            style=discord.ButtonStyle.secondary,
+            emoji="🍀",
+            custom_id="giveaway_chance_button",
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.show_giveaway_chances(interaction)
+
+
+class GiveawayRemainingTimeButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            label="Temps restant",
+            style=discord.ButtonStyle.secondary,
+            emoji="⏳",
+            custom_id="giveaway_remaining_button",
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.show_giveaway_remaining_time(interaction)
+
+
 class GiveawayView(discord.ui.View):
     def __init__(self, bot: "YishiBot") -> None:
         super().__init__(timeout=None)
         self.add_item(GiveawayJoinButton(bot))
+        self.add_item(GiveawayParticipantsButton(bot))
+        self.add_item(GiveawayChanceButton(bot))
+        self.add_item(GiveawayRemainingTimeButton(bot))
+
+
+class AnnouncementModal(discord.ui.Modal, title="Création annonce"):
+    titre = discord.ui.TextInput(label="Titre", max_length=120, required=True, placeholder="Titre de l'annonce")
+    contenu = discord.ui.TextInput(
+        label="Message",
+        style=discord.TextStyle.paragraph,
+        max_length=2000,
+        required=True,
+        placeholder="Contenu principal de l'annonce...",
+    )
+    footer = discord.ui.TextInput(
+        label="Note en bas",
+        max_length=150,
+        required=False,
+        placeholder="Exemple : Merci de lire attentivement",
+    )
+
+    def __init__(self, bot: "YishiBot", salon: discord.TextChannel) -> None:
+        super().__init__()
+        self.bot = bot
+        self.salon = salon
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        embed = discord.Embed(
+            title=self.titre.value,
+            description=self.contenu.value,
+            color=discord.Color.orange(),
+        )
+        embed.add_field(
+            name="Information",
+            value="⚠️ Merci de lire cette annonce attentivement avant toute action.",
+            inline=False,
+        )
+        embed.set_author(name="Création annonce")
+        footer_text = self.footer.value.strip() if self.footer.value else f"Annonce par {interaction.user}"
+        embed.set_footer(text=footer_text)
+        await self.salon.send(embed=embed)
+        await interaction.response.send_message(
+            f"Annonce envoyée dans {self.salon.mention}.",
+            ephemeral=True,
+        )
 
 
 class YishiBot(commands.Bot):
@@ -296,6 +385,7 @@ class YishiBot(commands.Bot):
 
         self.invite_cache: dict[int, dict[str, int]] = {}
         self.giveaway_tasks: dict[str, asyncio.Task] = {}
+        self.pending_ticket_creations: set[tuple[int, int]] = set()
         self.sync_done = False
 
     async def setup_hook(self) -> None:
@@ -385,6 +475,122 @@ class YishiBot(commands.Bot):
         if self.user is None:
             return None
         return guild.get_member(self.user.id)
+
+    def get_logs_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["logs_channel_id"]) if config["logs_channel_id"] else None
+        return channel if isinstance(channel, discord.TextChannel) else None
+
+    async def log_event(
+        self,
+        guild: discord.Guild,
+        title: str,
+        description: str,
+        color: discord.Color,
+        *,
+        thumbnail_url: str | None = None,
+        fields: list[tuple[str, str, bool]] | None = None,
+    ) -> None:
+        channel = self.get_logs_channel(guild)
+        if channel is None:
+            return
+
+        embed = discord.Embed(title=title, description=description, color=color)
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+        if fields:
+            for name, value, inline in fields:
+                embed.add_field(name=name, value=value[:1024] or "Aucune donnée", inline=inline)
+        embed.set_footer(text=f"ID serveur : {guild.id} • {discord.utils.utcnow().strftime('%d/%m/%Y %H:%M')}")
+        try:
+            await channel.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
+    def is_staff_member(self, member: discord.Member) -> bool:
+        config = self.get_guild_config(member.guild.id)
+        staff_role = member.guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        archive_role = member.guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        return (
+            member.id == member.guild.owner_id
+            or member.guild_permissions.manage_guild
+            or (staff_role is not None and staff_role in member.roles)
+            or (archive_role is not None and archive_role in member.roles)
+        )
+
+    async def configure_logs_channel_permissions(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
+        config = self.get_guild_config(guild.id)
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        await channel.set_permissions(guild.default_role, view_channel=False)
+        if staff_role is not None:
+            await channel.set_permissions(
+                staff_role,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+            )
+        if archive_role is not None:
+            await channel.set_permissions(
+                archive_role,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+            )
+        if guild.owner is not None:
+            await channel.set_permissions(
+                guild.owner,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            )
+
+    def format_remaining_duration(self, end_at: int) -> str:
+        remaining = end_at - int(discord.utils.utcnow().timestamp())
+        if remaining <= 0:
+            return "Terminé"
+        days, rem = divmod(remaining, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes, seconds = divmod(rem, 60)
+        parts: list[str] = []
+        if days:
+            parts.append(f"{days}j")
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes:
+            parts.append(f"{minutes}m")
+        if seconds or not parts:
+            parts.append(f"{seconds}s")
+        return " ".join(parts)
+
+    async def build_ticket_transcript(self, channel: discord.TextChannel) -> str:
+        lines: list[str] = []
+        async for message in channel.history(limit=None, oldest_first=True):
+            created = message.created_at.strftime("%d/%m/%Y %H:%M")
+            content = message.content or ""
+            if message.embeds and not content:
+                content = "[embed]"
+            if message.attachments:
+                attachments = ", ".join(attachment.url for attachment in message.attachments)
+                content = f"{content}\nPièces jointes : {attachments}".strip()
+            lines.append(f"[{created}] {message.author} : {content}".strip())
+        return "\n".join(lines) or "Aucun message dans ce ticket."
+
+    async def send_ticket_transcript(self, channel: discord.TextChannel) -> None:
+        transcript = await self.build_ticket_transcript(channel)
+        recipients = [
+            member
+            for member in channel.members
+            if not member.bot and channel.permissions_for(member).view_channel
+        ]
+        for member in recipients:
+            try:
+                await member.send(
+                    f"Transcript du ticket **{channel.name}**\n```text\n{transcript[:3900]}\n```"
+                )
+            except discord.Forbidden:
+                continue
 
     async def ensure_ticket_config(self, guild: discord.Guild) -> None:
         config = self.get_guild_config(guild.id)
@@ -508,6 +714,14 @@ class YishiBot(commands.Bot):
             )
             return
 
+        lock_key = (guild.id, user.id)
+        if lock_key in self.pending_ticket_creations:
+            await interaction.response.send_message(
+                "Ton ticket est déjà en cours de création, attends une seconde.",
+                ephemeral=True,
+            )
+            return
+
         config = self.get_guild_config(guild.id)
         staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
         archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
@@ -533,63 +747,78 @@ class YishiBot(commands.Bot):
             )
             return
 
-        number = self.get_next_ticket_number(guild.id)
-        channel_name = f"{number}-{slugify_name(user.display_name)}"
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            user: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                attach_files=True,
-                embed_links=True,
-            ),
-            staff_role: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_messages=True,
-            ),
-            archive_role: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_messages=True,
-            ),
-        }
-        channel = await guild.create_text_channel(
-            name=channel_name,
-            category=ticket_category,
-            overwrites=overwrites,
-            reason=f"Création du ticket {ticket_type} par {user}",
-        )
+        self.pending_ticket_creations.add(lock_key)
+        try:
+            number = self.get_next_ticket_number(guild.id)
+            channel_name = f"{number}-{slugify_name(user.display_name)}"
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                user: discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                    embed_links=True,
+                ),
+                staff_role: discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_messages=True,
+                ),
+                archive_role: discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_messages=True,
+                ),
+            }
+            channel = await guild.create_text_channel(
+                name=channel_name,
+                category=ticket_category,
+                overwrites=overwrites,
+                reason=f"Création du ticket {ticket_type} par {user}",
+            )
 
-        store = self.get_ticket_store(guild.id)
-        store["channels"][str(channel.id)] = {
-            "channel_id": channel.id,
-            "owner_id": user.id,
-            "status": "open",
-            "type": ticket_type,
-            "number": number,
-        }
-        self.save_tickets()
+            store = self.get_ticket_store(guild.id)
+            store["channels"][str(channel.id)] = {
+                "channel_id": channel.id,
+                "owner_id": user.id,
+                "status": "open",
+                "type": ticket_type,
+                "number": number,
+            }
+            self.save_tickets()
 
-        embed = discord.Embed(
-            title=f"Ticket {TICKET_TYPES[ticket_type]['label']}",
-            description=(
-                f"{user.mention}, ton ticket a été créé avec succès.\n"
-                "Explique ta demande avec le plus de détails possible."
-            ),
-            color=discord.Color.green(),
-        )
-        embed.add_field(name="Catégorie", value=TICKET_TYPES[ticket_type]["label"], inline=True)
-        embed.add_field(name="Numéro", value=str(number), inline=True)
-        await channel.send(
-            content=f"{user.mention} {staff_role.mention}",
-            embed=embed,
-            view=TicketCloseView(self),
-        )
-        await interaction.response.defer(ephemeral=True, thinking=False)
+            embed = discord.Embed(
+                title=f"Ticket {TICKET_TYPES[ticket_type]['label']}",
+                description=(
+                    f"{user.mention}, ton ticket a été créé avec succès.\n"
+                    "Explique ta demande avec le plus de détails possible."
+                ),
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="Catégorie", value=TICKET_TYPES[ticket_type]["label"], inline=True)
+            embed.add_field(name="Numéro", value=str(number), inline=True)
+            await channel.send(
+                content=f"{user.mention} {staff_role.mention}",
+                embed=embed,
+                view=TicketCloseView(self),
+            )
+            await self.log_event(
+                guild,
+                "🎫 Ticket ouvert",
+                f"{user.mention} a ouvert un ticket **{TICKET_TYPES[ticket_type]['label']}**.",
+                discord.Color.green(),
+                thumbnail_url=user.display_avatar.url,
+                fields=[
+                    ("Salon", channel.mention, True),
+                    ("Numéro", str(number), True),
+                ],
+            )
+            await interaction.response.defer(ephemeral=True, thinking=False)
+        finally:
+            self.pending_ticket_creations.discard(lock_key)
 
     async def archive_ticket(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
@@ -641,6 +870,7 @@ class YishiBot(commands.Bot):
 
         await interaction.response.defer(ephemeral=True)
         await channel.edit(category=archive_category, reason=f"Archivage du ticket par {user}")
+        await self.send_ticket_transcript(channel)
 
         if owner is not None:
             await channel.set_permissions(
@@ -689,6 +919,14 @@ class YishiBot(commands.Bot):
             color=discord.Color.orange(),
         )
         await channel.send(embed=embed, view=TicketArchiveView(self))
+        await self.log_event(
+            guild,
+            "📁 Ticket fermé",
+            f"Le ticket **{channel.name}** a été archivé par {user.mention}.",
+            discord.Color.orange(),
+            thumbnail_url=user.display_avatar.url,
+            fields=[("Salon", channel.name, True)],
+        )
         await interaction.followup.send("Le ticket a été archivé.", ephemeral=True)
 
     async def reopen_ticket(self, interaction: discord.Interaction) -> None:
@@ -807,6 +1045,13 @@ class YishiBot(commands.Bot):
             color=discord.Color.green(),
         )
         await channel.send(embed=embed, view=TicketCloseView(self))
+        await self.log_event(
+            guild,
+            "📂 Ticket réouvert",
+            f"Le ticket **{channel.name}** a été réouvert par {user.mention}.",
+            discord.Color.green(),
+            thumbnail_url=user.display_avatar.url,
+        )
         await interaction.followup.send("Le ticket a été réouvert.", ephemeral=True)
 
     async def join_giveaway(self, interaction: discord.Interaction) -> None:
@@ -846,7 +1091,100 @@ class YishiBot(commands.Bot):
         except discord.Forbidden:
             pass
 
-    def _pick_weighted_winners(
+    async def show_giveaway_chances(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Impossible d'afficher tes chances ici.", ephemeral=True)
+            return
+        weight = get_member_giveaway_weight(interaction.user)
+        bonus_roles = [role.name for role in interaction.user.roles if role.name in INVITE_ROLE_WEIGHTS]
+        best_role = max(bonus_roles, key=lambda role_name: INVITE_ROLE_WEIGHTS[role_name]) if bonus_roles else None
+        parts = [f"Chance totale : **x{weight:g}**"]
+        if best_role is not None:
+            parts.append(f"Rôle invitations pris en compte : **{best_role}**")
+        if interaction.user.premium_since is not None or discord.utils.get(interaction.user.roles, name="Server Booster"):
+            parts.append("Bonus Server Booster : **+1**")
+        await interaction.response.send_message("\n".join(parts), ephemeral=True)
+
+    async def show_giveaway_remaining_time(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or interaction.message is None:
+            await interaction.response.send_message("Impossible d'afficher le temps restant ici.", ephemeral=True)
+            return
+        giveaway = self.get_giveaway_store(interaction.guild.id).get(str(interaction.message.id))
+        if giveaway is None:
+            await interaction.response.send_message("Aucun giveaway trouvé pour ce message.", ephemeral=True)
+            return
+        remaining = self.format_remaining_duration(int(giveaway["end_at"]))
+        await interaction.response.send_message(
+            f"Temps restant pour **{giveaway['prize']}** : **{remaining}**",
+            ephemeral=True,
+        )
+
+    async def show_giveaway_participants(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Impossible d'afficher les participants ici.",
+                ephemeral=True,
+            )
+            return
+
+        giveaway = self.get_giveaway_store(interaction.guild.id).get(str(interaction.message.id))
+        if giveaway is None:
+            await interaction.response.send_message(
+                "Aucun giveaway trouvé pour ce message.",
+                ephemeral=True,
+            )
+            return
+
+        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
+        if not participant_ids:
+            await interaction.response.send_message(
+                f"Aucun participant pour **{giveaway['prize']}** pour le moment.",
+                ephemeral=True,
+            )
+            return
+
+        lines: list[str] = []
+        for user_id in participant_ids:
+            member = interaction.guild.get_member(user_id)
+            if member is None:
+                try:
+                    member = await interaction.guild.fetch_member(user_id)
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                    member = None
+
+            if member is not None:
+                lines.append(f"• {member.display_name}")
+            else:
+                lines.append(f"• {user_id}")
+
+        chunks: list[str] = []
+        current = ""
+        for line in lines:
+            candidate = line if not current else f"{current}\n{line}"
+            if len(candidate) <= 3500:
+                current = candidate
+            else:
+                chunks.append(current)
+                current = line
+        if current:
+            chunks.append(current)
+
+        embed = discord.Embed(
+            title=f"Participants • {giveaway['prize']}",
+            description=f"Participants : **{len(participant_ids)}**",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Liste", value=chunks[0], inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        for extra_chunk in chunks[1:]:
+            extra_embed = discord.Embed(
+                title=f"Participants • {giveaway['prize']} (suite)",
+                color=discord.Color.gold(),
+            )
+            extra_embed.add_field(name="Liste", value=extra_chunk, inline=False)
+            await interaction.followup.send(embed=extra_embed, ephemeral=True)
+
+    async def _pick_weighted_winners(
         self,
         guild: discord.Guild,
         participant_ids: list[int],
@@ -860,6 +1198,11 @@ class YishiBot(commands.Bot):
             if user_id in excluded:
                 continue
             member = guild.get_member(user_id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                    member = None
             if member is None:
                 continue
             pool.append((user_id, get_member_giveaway_weight(member)))
@@ -895,7 +1238,7 @@ class YishiBot(commands.Bot):
             return
 
         participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
-        winners = self._pick_weighted_winners(
+        winners = await self._pick_weighted_winners(
             guild,
             participant_ids,
             int(giveaway["winners_count"]),
@@ -933,7 +1276,7 @@ class YishiBot(commands.Bot):
 
         participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
         previous_winners = set(giveaway.get("winners", []))
-        winners = self._pick_weighted_winners(
+        winners = await self._pick_weighted_winners(
             guild,
             participant_ids,
             int(giveaway["winners_count"]),
@@ -1008,6 +1351,134 @@ class MainCog(commands.Cog):
             icon_url=member.guild.icon.url if member.guild.icon else None,
         )
         await welcome_channel.send(embed=embed)
+        await self.bot.log_event(
+            member.guild,
+            "👋 Membre rejoint",
+            f"{member.mention} a rejoint le serveur.",
+            discord.Color.green(),
+            thumbnail_url=member.display_avatar.url,
+            fields=[
+                ("Membres totaux", str(member.guild.member_count), True),
+                ("Compte créé", member.created_at.strftime("%d/%m/%Y %H:%M"), True),
+            ],
+        )
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member) -> None:
+        await self.bot.log_event(
+            member.guild,
+            "📤 Membre parti",
+            f"{member} a quitté le serveur.",
+            discord.Color.red(),
+            thumbnail_url=member.display_avatar.url,
+            fields=[("Membres restants", str(member.guild.member_count), True)],
+        )
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        before_roles = {role.id: role.name for role in before.roles if role != before.guild.default_role}
+        after_roles = {role.id: role.name for role in after.roles if role != after.guild.default_role}
+        added = [name for role_id, name in after_roles.items() if role_id not in before_roles]
+        removed = [name for role_id, name in before_roles.items() if role_id not in after_roles]
+        if added or removed:
+            fields: list[tuple[str, str, bool]] = []
+            if added:
+                fields.append(("Ajoutés", "\n".join(f"• {role}" for role in added), False))
+            if removed:
+                fields.append(("Retirés", "\n".join(f"• {role}" for role in removed), False))
+            await self.bot.log_event(
+                after.guild,
+                "🎭 Rôles modifiés",
+                f"Les rôles de {after.mention} ont été modifiés.",
+                discord.Color.blurple(),
+                thumbnail_url=after.display_avatar.url,
+                fields=fields,
+            )
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message) -> None:
+        if message.guild is None or message.author.bot:
+            return
+        await self.bot.log_event(
+            message.guild,
+            "🗑️ Message supprimé",
+            f"Un message de {message.author.mention} a été supprimé dans {message.channel.mention}.",
+            discord.Color.red(),
+            thumbnail_url=message.author.display_avatar.url,
+            fields=[("Contenu", message.content or "[vide ou embed]", False)],
+        )
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
+        if before.guild is None or before.author.bot or before.content == after.content:
+            return
+        await self.bot.log_event(
+            before.guild,
+            "✏️ Message modifié",
+            f"Un message de {before.author.mention} a été modifié dans {before.channel.mention}.",
+            discord.Color.orange(),
+            thumbnail_url=before.author.display_avatar.url,
+            fields=[
+                ("Avant", before.content or "[vide]", False),
+                ("Après", after.content or "[vide]", False),
+            ],
+        )
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ) -> None:
+        if before.channel == after.channel:
+            return
+        if after.channel is not None:
+            await self.bot.log_event(
+                member.guild,
+                "🔊 Connexion vocale",
+                f"{member.mention} a rejoint un salon vocal.",
+                discord.Color.green(),
+                thumbnail_url=member.display_avatar.url,
+                fields=[("Salon", after.channel.name, True)],
+            )
+        elif before.channel is not None:
+            await self.bot.log_event(
+                member.guild,
+                "🔇 Déconnexion vocale",
+                f"{member.mention} a quitté un salon vocal.",
+                discord.Color.orange(),
+                thumbnail_url=member.display_avatar.url,
+                fields=[("Salon", before.channel.name, True)],
+            )
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if message.guild is None or message.author.bot or not isinstance(message.author, discord.Member):
+            return
+        if self.bot.is_staff_member(message.author):
+            return
+        if LINK_PATTERN.search(message.content):
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                return
+            await self.bot.log_event(
+                message.guild,
+                "🔗 Lien bloqué",
+                f"Un lien envoyé par {message.author.mention} a été supprimé dans {message.channel.mention}.",
+                discord.Color.red(),
+                thumbnail_url=message.author.display_avatar.url,
+                fields=[("Contenu", message.content, False)],
+            )
+            warning = await message.channel.send(
+                f"{message.author.mention}, les liens ne sont pas autorisés ici."
+            )
+            await asyncio.sleep(8)
+            try:
+                await warning.delete()
+            except discord.HTTPException:
+                pass
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
@@ -1042,22 +1513,22 @@ class MainCog(commands.Cog):
         )
         embed.add_field(
             name="Messages",
-            value="/dire\n/envoyer_message\n/annonce",
+            value="/dire\n/envoyer_message\n/annonce\n/annonce_create",
             inline=False,
         )
         embed.add_field(
             name="Modération",
-            value="/clear\n/kick\n/ban\n/mute\n/unmute\n/warn\n/list_warn",
+            value="/clear\n/kick\n/ban\n/unban\n/mute\n/unmute\n/warn\n/list_warn",
             inline=False,
         )
         embed.add_field(
             name="Tickets",
-            value="/envoyer_panel_tickets\n/add_membre_ticket",
+            value="/envoyer_panel_tickets\n/add_membre_ticket\n/remove_membre_ticket",
             inline=False,
         )
         embed.add_field(
             name="Giveaways",
-            value="/giveaway_create\n/giveaway_list\n/giveaway_participants\n/giveaway_end\n/giveaway_reroll",
+            value="/giveaway_create\n/giveaway_list\n/giveaway_end\n/giveaway_reroll",
             inline=False,
         )
         embed.add_field(
@@ -1068,6 +1539,7 @@ class MainCog(commands.Cog):
                 "/config_categorie_tickets\n"
                 "/config_categorie_archives\n"
                 "/config_salon_bienvenue\n"
+                "/config_salon_logs\n"
                 "/config_role_regles\n"
                 "/envoyer_reglement\n"
                 "/envoyer_message_regles"
@@ -1189,6 +1661,16 @@ class MainCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(name="annonce_create", description="Ouvre une fenêtre propre pour créer une annonce")
+    @app_commands.describe(salon="Salon cible")
+    @app_commands.default_permissions(manage_messages=True)
+    async def annonce_create(
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+    ) -> None:
+        await interaction.response.send_modal(AnnouncementModal(self.bot, salon))
+
     @app_commands.command(name="clear", description="Supprime un certain nombre de messages")
     @app_commands.describe(nombre="Nombre de messages à supprimer")
     @app_commands.default_permissions(manage_messages=True)
@@ -1205,6 +1687,14 @@ class MainCog(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=nombre)
+        await self.bot.log_event(
+            interaction.guild,
+            "🧹 Messages supprimés",
+            f"{interaction.user.mention} a supprimé des messages dans {interaction.channel.mention}.",
+            discord.Color.orange(),
+            thumbnail_url=interaction.user.display_avatar.url,
+            fields=[("Nombre", str(len(deleted)), True)],
+        )
         await interaction.followup.send(
             f"{len(deleted)} message(s) supprimé(s).",
             ephemeral=True,
@@ -1237,6 +1727,14 @@ class MainCog(commands.Cog):
             await interaction.response.send_message(error, ephemeral=True)
             return
         await membre.kick(reason=raison)
+        await self.bot.log_event(
+            interaction.guild,
+            "👢 Membre expulsé",
+            f"{membre.mention} a été expulsé par {interaction.user.mention}.",
+            discord.Color.red(),
+            thumbnail_url=membre.display_avatar.url,
+            fields=[("Raison", raison, False)],
+        )
         await interaction.response.send_message(
             f"{membre} a été expulsé. Raison : {raison}"
         )
@@ -1268,6 +1766,14 @@ class MainCog(commands.Cog):
             await interaction.response.send_message(error, ephemeral=True)
             return
         await membre.ban(reason=raison)
+        await self.bot.log_event(
+            interaction.guild,
+            "⛔ Membre banni",
+            f"{membre.mention} a été banni par {interaction.user.mention}.",
+            discord.Color.red(),
+            thumbnail_url=membre.display_avatar.url,
+            fields=[("Raison", raison, False)],
+        )
         await interaction.response.send_message(
             f"{membre} a été banni. Raison : {raison}"
         )
@@ -1304,6 +1810,14 @@ class MainCog(commands.Cog):
             await interaction.response.send_message(error, ephemeral=True)
             return
         await membre.timeout(discord.utils.utcnow() + timedelta(minutes=minutes), reason=raison)
+        await self.bot.log_event(
+            interaction.guild,
+            "🔇 Membre mute",
+            f"{membre.mention} a été mute par {interaction.user.mention}.",
+            discord.Color.orange(),
+            thumbnail_url=membre.display_avatar.url,
+            fields=[("Durée", f"{minutes} minute(s)", True), ("Raison", raison, False)],
+        )
         await interaction.response.send_message(
             f"{membre} a été mute pendant {minutes} minute(s). Raison : {raison}"
         )
@@ -1335,9 +1849,40 @@ class MainCog(commands.Cog):
             await interaction.response.send_message(error, ephemeral=True)
             return
         await membre.timeout(None, reason=raison)
+        await self.bot.log_event(
+            interaction.guild,
+            "🔊 Membre unmute",
+            f"{membre.mention} n'est plus mute grâce à {interaction.user.mention}.",
+            discord.Color.green(),
+            thumbnail_url=membre.display_avatar.url,
+            fields=[("Raison", raison, False)],
+        )
         await interaction.response.send_message(
             f"{membre} n'est plus mute. Raison : {raison}"
         )
+
+    @app_commands.command(name="unban", description="Débannit un membre du serveur")
+    @app_commands.describe(user_id="ID du membre à débannir", raison="La raison du débannissement")
+    @app_commands.default_permissions(ban_members=True)
+    async def unban(
+        self,
+        interaction: discord.Interaction,
+        user_id: str,
+        raison: str = "Aucune raison fournie",
+    ) -> None:
+        if interaction.guild is None or not user_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
+            return
+        user = await self.bot.fetch_user(int(user_id))
+        await interaction.guild.unban(user, reason=raison)
+        await self.bot.log_event(
+            interaction.guild,
+            "✅ Membre débanni",
+            f"{user} a été débanni par {interaction.user.mention}.",
+            discord.Color.green(),
+            fields=[("Raison", raison, False)],
+        )
+        await interaction.response.send_message(f"{user} a été débanni. Raison : {raison}")
 
     @app_commands.command(name="warn", description="Avertit un membre avec une raison")
     @app_commands.describe(membre="Le membre à avertir", raison="La raison de l'avertissement")
@@ -1377,6 +1922,14 @@ class MainCog(commands.Cog):
             }
         )
         self.bot.save_warnings()
+        await self.bot.log_event(
+            interaction.guild,
+            "⚠️ Avertissement ajouté",
+            f"{membre.mention} a reçu un avertissement de {interaction.user.mention}.",
+            discord.Color.orange(),
+            thumbnail_url=membre.display_avatar.url,
+            fields=[("Raison", raison, False)],
+        )
         await interaction.response.send_message(
             f"{membre.mention} a reçu un avertissement. Raison : {raison}"
         )
@@ -1453,6 +2006,25 @@ class MainCog(commands.Cog):
         await interaction.channel.send(
             f"{membre.mention} a été ajouté au ticket par {interaction.user.mention}."
         )
+
+    @app_commands.command(name="remove_membre_ticket", description="Retire un membre du ticket actuel")
+    @app_commands.describe(membre="Le membre à retirer du ticket")
+    @app_commands.default_permissions(manage_channels=True)
+    async def remove_membre_ticket(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        ticket = self.bot.get_ticket_store(interaction.guild.id)["channels"].get(str(interaction.channel.id))
+        if ticket is None:
+            await interaction.response.send_message("Cette commande doit être utilisée dans un ticket.", ephemeral=True)
+            return
+        await interaction.channel.set_permissions(membre, overwrite=None)
+        await interaction.response.send_message(f"{membre.mention} a été retiré du ticket.", ephemeral=True)
+        await interaction.channel.send(f"{membre.mention} a été retiré du ticket par {interaction.user.mention}.")
 
     @app_commands.command(name="giveaway_create", description="Crée un giveaway")
     @app_commands.describe(
@@ -1574,67 +2146,6 @@ class MainCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="giveaway_participants", description="Affiche la liste des participants d'un giveaway")
-    @app_commands.describe(message_id="ID du message du giveaway")
-    @app_commands.default_permissions(manage_guild=True)
-    async def giveaway_participants(self, interaction: discord.Interaction, message_id: str) -> None:
-        if interaction.guild is None or not message_id.isdigit():
-            await interaction.response.send_message("ID invalide.", ephemeral=True)
-            return
-
-        giveaway = self.bot.get_giveaway_store(interaction.guild.id).get(message_id)
-        if giveaway is None:
-            await interaction.response.send_message(
-                "Aucun giveaway trouvé avec cet ID.",
-                ephemeral=True,
-            )
-            return
-
-        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
-        if not participant_ids:
-            await interaction.response.send_message(
-                f"Aucun participant pour **{giveaway['prize']}** (`{message_id}`).",
-                ephemeral=True,
-            )
-            return
-
-        lines: list[str] = []
-        for user_id in participant_ids:
-            member = interaction.guild.get_member(user_id)
-            weight_text = ""
-            if member is not None:
-                weight_text = f" — chance x{get_member_giveaway_weight(member):g}"
-                lines.append(f"• {member.mention} (`{user_id}`){weight_text}")
-            else:
-                lines.append(f"• Utilisateur inconnu (`{user_id}`)")
-
-        chunks: list[str] = []
-        current = ""
-        for line in lines:
-            candidate = line if not current else f"{current}\n{line}"
-            if len(candidate) <= 3500:
-                current = candidate
-            else:
-                chunks.append(current)
-                current = line
-        if current:
-            chunks.append(current)
-
-        embed = discord.Embed(
-            title=f"Participants • {giveaway['prize']}",
-            description=f"ID du giveaway : `{message_id}`\nParticipants : **{len(participant_ids)}**",
-            color=discord.Color.gold(),
-        )
-        embed.add_field(name="Liste", value=chunks[0], inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        for extra_chunk in chunks[1:]:
-            extra_embed = discord.Embed(
-                title=f"Participants • {giveaway['prize']} (suite)",
-                color=discord.Color.gold(),
-            )
-            extra_embed.add_field(name="Liste", value=extra_chunk, inline=False)
-            await interaction.followup.send(embed=extra_embed, ephemeral=True)
-
     @app_commands.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
     @app_commands.describe(message_id="ID du message du giveaway")
     @app_commands.default_permissions(manage_guild=True)
@@ -1751,6 +2262,26 @@ class MainCog(commands.Cog):
         self.bot.save_config()
         await interaction.response.send_message(
             f"Le salon de bienvenue est maintenant {salon.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="config_salon_logs", description="Définit le salon des logs complets")
+    @app_commands.describe(salon="Salon de logs")
+    @app_commands.default_permissions(manage_guild=True)
+    async def config_salon_logs(
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        config = self.bot.get_guild_config(interaction.guild.id)
+        config["logs_channel_id"] = salon.id
+        self.bot.save_config()
+        await self.bot.configure_logs_channel_permissions(interaction.guild, salon)
+        await interaction.response.send_message(
+            f"Le salon de logs est maintenant {salon.mention}.",
             ephemeral=True,
         )
 
