@@ -9,6 +9,7 @@ TICKETS_FILE = BASE_DIR / "tickets.json"
 WARNINGS_FILE = BASE_DIR / "warnings.json"
 INVITES_FILE = BASE_DIR / "invites.json"
 GIVEAWAYS_FILE = BASE_DIR / "giveaways.json"
+GACHA_FILE = BASE_DIR / "gacha.json"
 
 
 def load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
