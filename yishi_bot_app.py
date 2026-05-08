@@ -584,6 +584,15 @@ def default_gacha_store() -> dict[str, Any]:
     }
 
 
+def merge_missing_defaults(target: dict[str, Any], defaults: dict[str, Any]) -> bool:
+    changed = False
+    for key, value in defaults.items():
+        if key not in target:
+            target[key] = value
+            changed = True
+    return changed
+
+
 class YishiBot(commands.Bot):
     def __init__(self) -> None:
         intents = discord.Intents.default()
@@ -597,6 +606,8 @@ class YishiBot(commands.Bot):
         self.invite_data = load_json(INVITES_FILE, {})
         self.giveaway_data = load_json(GIVEAWAYS_FILE, {})
         self.gacha_data = load_json(GACHA_FILE, default_gacha_store())
+        if merge_missing_defaults(self.gacha_data, default_gacha_store()):
+            self.save_gacha()
 
         self.invite_cache: dict[int, dict[str, int]] = {}
         self.giveaway_tasks: dict[str, asyncio.Task] = {}
@@ -613,8 +624,13 @@ class YishiBot(commands.Bot):
 
     def get_guild_config(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
+        changed = False
         if key not in self.config_data:
             self.config_data[key] = default_config()
+            changed = True
+        else:
+            changed = merge_missing_defaults(self.config_data[key], default_config())
+        if changed:
             self.save_config()
         return self.config_data[key]
 
