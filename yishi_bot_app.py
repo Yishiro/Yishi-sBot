@@ -1,4 +1,5 @@
 import asyncio
+import io
 import random
 import re
 from datetime import timedelta
@@ -24,6 +25,8 @@ AUTO_STAFF_ROLE_NAME = "👑・𝐒taff"
 AUTO_ARCHIVE_ROLE_NAME = "👑・𝐅ondateur"
 AUTO_TICKET_CATEGORY_NAME = "Tickets"
 AUTO_ARCHIVE_CATEGORY_NAME = "Ticket-Close"
+AUTO_LOGS_CHANNEL_NAME = "📂・𝐋ogs-staff"
+AUTO_TRANSCRIPT_CHANNEL_NAME = "logs-transcript"
 
 INVITE_ROLE_WEIGHTS = {
     "🥉 Inviteur Bronze • 5": 1.5,
@@ -159,6 +162,7 @@ def default_config() -> dict[str, Any]:
         "archive_category_id": None,
         "welcome_channel_id": None,
         "logs_channel_id": None,
+        "transcript_logs_channel_id": None,
         "rules_role_id": None,
         "rules_message_id": None,
         "rules_channel_id": None,
@@ -481,6 +485,15 @@ class YishiBot(commands.Bot):
         channel = guild.get_channel(config["logs_channel_id"]) if config["logs_channel_id"] else None
         return channel if isinstance(channel, discord.TextChannel) else None
 
+    def get_transcript_logs_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = (
+            guild.get_channel(config["transcript_logs_channel_id"])
+            if config["transcript_logs_channel_id"]
+            else None
+        )
+        return channel if isinstance(channel, discord.TextChannel) else None
+
     async def log_event(
         self,
         guild: discord.Guild,
@@ -546,6 +559,9 @@ class YishiBot(commands.Bot):
                 manage_messages=True,
             )
 
+    async def configure_staff_only_channel(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
+        await self.configure_logs_channel_permissions(guild, channel)
+
     def format_remaining_duration(self, end_at: int) -> str:
         remaining = end_at - int(discord.utils.utcnow().timestamp())
         if remaining <= 0:
@@ -579,6 +595,7 @@ class YishiBot(commands.Bot):
 
     async def send_ticket_transcript(self, channel: discord.TextChannel) -> None:
         transcript = await self.build_ticket_transcript(channel)
+        transcript_bytes = transcript.encode("utf-8")
         recipients = [
             member
             for member in channel.members
@@ -586,11 +603,30 @@ class YishiBot(commands.Bot):
         ]
         for member in recipients:
             try:
+                file = discord.File(
+                    io.BytesIO(transcript_bytes),
+                    filename=f"transcript-{channel.name}.txt",
+                )
                 await member.send(
-                    f"Transcript du ticket **{channel.name}**\n```text\n{transcript[:3900]}\n```"
+                    content=f"Transcript du ticket **{channel.name}**",
+                    file=file,
                 )
             except discord.Forbidden:
                 continue
+
+        transcript_channel = self.get_transcript_logs_channel(channel.guild)
+        if transcript_channel is not None:
+            try:
+                file = discord.File(
+                    io.BytesIO(transcript_bytes),
+                    filename=f"transcript-{channel.name}.txt",
+                )
+                await transcript_channel.send(
+                    content=f"Transcript du ticket **{channel.name}**",
+                    file=file,
+                )
+            except discord.HTTPException:
+                pass
 
     async def ensure_ticket_config(self, guild: discord.Guild) -> None:
         config = self.get_guild_config(guild.id)
@@ -634,6 +670,35 @@ class YishiBot(commands.Bot):
                     reason="Auto configuration tickets",
                 )
             config["archive_category_id"] = archive_category.id
+
+        logs_channel = guild.get_channel(config["logs_channel_id"]) if config["logs_channel_id"] else None
+        if not isinstance(logs_channel, discord.TextChannel):
+            logs_channel = discord.utils.get(guild.text_channels, name=AUTO_LOGS_CHANNEL_NAME)
+            if logs_channel is None:
+                logs_channel = await guild.create_text_channel(
+                    AUTO_LOGS_CHANNEL_NAME,
+                    reason="Auto configuration logs",
+                )
+            config["logs_channel_id"] = logs_channel.id
+        await self.configure_logs_channel_permissions(guild, logs_channel)
+
+        transcript_logs_channel = (
+            guild.get_channel(config["transcript_logs_channel_id"])
+            if config["transcript_logs_channel_id"]
+            else None
+        )
+        if not isinstance(transcript_logs_channel, discord.TextChannel):
+            transcript_logs_channel = discord.utils.get(
+                guild.text_channels,
+                name=AUTO_TRANSCRIPT_CHANNEL_NAME,
+            )
+            if transcript_logs_channel is None:
+                transcript_logs_channel = await guild.create_text_channel(
+                    AUTO_TRANSCRIPT_CHANNEL_NAME,
+                    reason="Auto configuration transcript logs",
+                )
+            config["transcript_logs_channel_id"] = transcript_logs_channel.id
+        await self.configure_staff_only_channel(guild, transcript_logs_channel)
 
         self.save_config()
 
@@ -1508,12 +1573,12 @@ class MainCog(commands.Cog):
         embed = discord.Embed(title="Commandes", color=discord.Color.blurple())
         embed.add_field(
             name="Général",
-            value="/aide\n/ping\n/paiement\n/invites\n/userinfo",
+            value="/aide\n/ping\n/paiement\n/invites\n/userinfo\n/stats_membre",
             inline=False,
         )
         embed.add_field(
             name="Messages",
-            value="/dire\n/envoyer_message\n/annonce\n/annonce_create",
+            value="/dire\n/envoyer_message\n/annonce\n/annonce_create\n/sondage",
             inline=False,
         )
         embed.add_field(
@@ -1615,6 +1680,46 @@ class MainCog(commands.Cog):
             )
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(name="stats_membre", description="Affiche les stats d'un membre")
+    @app_commands.describe(membre="Le membre à afficher")
+    async def stats_membre(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member | None = None,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        member = membre or interaction.user
+        guild_id = interaction.guild.id
+        warnings_count = len(self.bot.get_warning_store(guild_id).get(str(member.id), []))
+        invites_count = self.bot.get_invite_count(guild_id, member.id)
+        open_tickets = len(self.bot.get_open_tickets_for_user(guild_id, member.id))
+        archived_tickets = sum(
+            1
+            for ticket in self.bot.get_ticket_store(guild_id)["channels"].values()
+            if ticket["owner_id"] == member.id and ticket["status"] == "archived"
+        )
+        giveaways_won = sum(
+            1
+            for giveaway in self.bot.get_giveaway_store(guild_id).values()
+            if member.id in giveaway.get("winners", [])
+        )
+
+        embed = discord.Embed(
+            title=f"Stats de {member.display_name}",
+            color=discord.Color.blurple(),
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.add_field(name="Invitations", value=str(invites_count), inline=True)
+        embed.add_field(name="Warns", value=str(warnings_count), inline=True)
+        embed.add_field(name="Chances giveaway", value=f"x{get_member_giveaway_weight(member):g}", inline=True)
+        embed.add_field(name="Tickets ouverts", value=str(open_tickets), inline=True)
+        embed.add_field(name="Tickets archivés", value=str(archived_tickets), inline=True)
+        embed.add_field(name="Giveaways gagnés", value=str(giveaways_won), inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="dire", description="Fait parler le bot dans le salon actuel")
     @app_commands.describe(message="Le message à envoyer")
     @app_commands.default_permissions(manage_messages=True)
@@ -1642,6 +1747,47 @@ class MainCog(commands.Cog):
             f"Message envoyé dans {salon.mention}.",
             ephemeral=True,
         )
+
+    @app_commands.command(name="sondage", description="Crée un sondage rapide")
+    @app_commands.describe(
+        question="Question du sondage",
+        option1="Première option",
+        option2="Deuxième option",
+        option3="Troisième option (optionnel)",
+        option4="Quatrième option (optionnel)",
+    )
+    @app_commands.default_permissions(manage_messages=True)
+    async def sondage(
+        self,
+        interaction: discord.Interaction,
+        question: str,
+        option1: str,
+        option2: str,
+        option3: str | None = None,
+        option4: str | None = None,
+    ) -> None:
+        options = [option1, option2]
+        if option3:
+            options.append(option3)
+        if option4:
+            options.append(option4)
+
+        emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
+        lines = [f"{emoji} {option}" for emoji, option in zip(emojis, options)]
+        embed = discord.Embed(
+            title="📊 Sondage",
+            description=f"**{question}**\n\n" + "\n".join(lines),
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text=f"Sondage créé par {interaction.user}")
+        if interaction.channel is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        poll_message = await interaction.channel.send(embed=embed)
+        for emoji in emojis[: len(options)]:
+            await poll_message.add_reaction(emoji)
+        await interaction.followup.send("Sondage envoyé.", ephemeral=True)
 
     @app_commands.command(name="annonce", description="Envoie une annonce en embed dans le salon de ton choix")
     @app_commands.describe(salon="Salon cible", titre="Titre de l'annonce", message="Texte de l'annonce")
