@@ -1093,6 +1093,41 @@ class YishiBot(commands.Bot):
         finally:
             self.pending_gacha_spins.discard(lock_key)
 
+    def build_gacha_rates_embed(self, spin_type: str) -> discord.Embed:
+        rarity_order = ("Common", "Rare", "Epic", "Legendary", "Mythical", "Secret")
+        spin_data = GACHA_REWARDS[spin_type]
+        color_map = {
+            "basic": discord.Color.green(),
+            "advanced": discord.Color.blue(),
+            "deluxe": discord.Color.purple(),
+        }
+        icon_map = {
+            "basic": "🟢",
+            "advanced": "🔵",
+            "deluxe": "🟣",
+        }
+        embed = discord.Embed(
+            title=f"{icon_map.get(spin_type, '🎰')} {spin_type.title()} Spin",
+            description="Taux de drop et récompenses possibles.",
+            color=color_map.get(spin_type, discord.Color.blurple()),
+        )
+
+        rarity_lines: list[str] = []
+        reward_lines: list[str] = []
+        for rarity in rarity_order:
+            rewards = spin_data.get(rarity)
+            if not rewards:
+                continue
+            total = sum(float(reward["chance"]) for reward in rewards)
+            total_display = f"{int(total)}%" if total.is_integer() else f"{total:.2f}%"
+            rarity_lines.append(f"• {rarity}: **{total_display}**")
+            reward_lines.append(f"• {rarity}: {', '.join(reward['name'] for reward in rewards)}")
+
+        embed.add_field(name="Raretés", value="\n".join(rarity_lines), inline=False)
+        embed.add_field(name="Possible Rewards", value="\n".join(reward_lines), inline=False)
+        embed.set_footer(text="Les taux affichés correspondent aux chances réelles du spin.")
+        return embed
+
     async def ensure_ticket_config(self, guild: discord.Guild) -> None:
         config = self.get_guild_config(guild.id)
 
@@ -2094,7 +2129,7 @@ class MainCog(commands.Cog):
         )
         embed.add_field(
             name="Gacha",
-            value="/basic\n/advanced\n/deluxe\n/basic_add\n/advanced_add\n/deluxe_add\n/spin_remove\n/spin_log",
+            value="/basic\n/advanced\n/deluxe\n/gacha_taux\n/basic_add\n/advanced_add\n/deluxe_add\n/spin_remove\n/spin_log",
             inline=False,
         )
         embed.add_field(
@@ -2260,6 +2295,15 @@ class MainCog(commands.Cog):
             return
         embed = discord.Embed(title="Stock global des spins", description="\n".join(lines[:30]), color=discord.Color.gold())
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="gacha_taux", description="Envoie les taux de drop des spins")
+    async def gacha_taux(self, interaction: discord.Interaction) -> None:
+        embeds = [
+            self.bot.build_gacha_rates_embed("basic"),
+            self.bot.build_gacha_rates_embed("advanced"),
+            self.bot.build_gacha_rates_embed("deluxe"),
+        ]
+        await interaction.response.send_message(embeds=embeds)
 
     @app_commands.command(name="basic", description="Utilise un Basic Spin")
     async def basic(self, interaction: discord.Interaction) -> None:
