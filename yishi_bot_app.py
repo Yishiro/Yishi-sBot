@@ -575,6 +575,8 @@ def default_gacha_store() -> dict[str, Any]:
     return {
         "inventories": {},
         "history": [],
+        "grant_history": [],
+        "member_notes": {},
         "next_claim_number": 1,
     }
 
@@ -609,6 +611,7 @@ class YishiBot(commands.Bot):
         self.pending_ticket_creations: set[tuple[int, int]] = set()
         self.pending_gacha_spins: set[tuple[int, int]] = set()
         self.sync_done = False
+        self.synced_guild_ids: set[int] = set()
 
     async def setup_hook(self) -> None:
         self.add_view(TicketPanelView(self))
@@ -685,6 +688,68 @@ class YishiBot(commands.Bot):
             inventories[key] = {"basic": 0, "advanced": 0, "deluxe": 0}
             self.save_gacha()
         return inventories[key]
+
+    def get_member_notes(self, user_id: int) -> list[dict[str, Any]]:
+        key = str(user_id)
+        notes = self.gacha_data.setdefault("member_notes", {})
+        if key not in notes:
+            notes[key] = []
+            self.save_gacha()
+        return notes[key]
+
+    def add_member_note(self, user_id: int, author_id: int, author_name: str, content: str) -> dict[str, Any]:
+        note = {
+            "author_id": author_id,
+            "author_name": author_name,
+            "content": content,
+            "timestamp": discord.utils.utcnow().isoformat(),
+        }
+        self.get_member_notes(user_id).append(note)
+        self.save_gacha()
+        return note
+
+    def remove_member_note(self, user_id: int, index: int) -> dict[str, Any] | None:
+        notes = self.get_member_notes(user_id)
+        if index < 0 or index >= len(notes):
+            return None
+        removed = notes.pop(index)
+        self.save_gacha()
+        return removed
+
+    def record_spin_adjustment(
+        self,
+        target_id: int,
+        target_name: str,
+        actor_id: int,
+        actor_name: str,
+        spin_type: str,
+        quantity: int,
+        action: str,
+        reason: str | None,
+        total_after: int,
+    ) -> None:
+        self.gacha_data.setdefault("grant_history", []).append(
+            {
+                "target_id": target_id,
+                "target_name": target_name,
+                "actor_id": actor_id,
+                "actor_name": actor_name,
+                "spin_type": spin_type,
+                "quantity": quantity,
+                "action": action,
+                "reason": reason or "",
+                "total_after": total_after,
+                "timestamp": discord.utils.utcnow().isoformat(),
+            }
+        )
+        self.save_gacha()
+
+    def get_member_grant_history(self, user_id: int) -> list[dict[str, Any]]:
+        return [
+            entry
+            for entry in self.gacha_data.get("grant_history", [])
+            if int(entry.get("target_id", 0)) == user_id
+        ]
 
     def get_open_tickets_for_user(self, guild_id: int, user_id: int) -> list[dict[str, Any]]:
         return [
@@ -1882,21 +1947,24 @@ class YishiBot(commands.Bot):
         self.save_giveaways()
         return winners
 
+    async def sync_guild_commands(self, guild: discord.Guild) -> None:
+        await self.ensure_ticket_config(guild)
+        await self.cache_invites(guild)
+        self.tree.copy_global_to(guild=guild)
+        synced = await self.tree.sync(guild=guild)
+        print(f"{len(synced)} commande(s) slash synchronisée(s) sur {guild.name}.")
+        self.synced_guild_ids.add(guild.id)
+
     async def sync_commands_once(self) -> None:
-        if self.sync_done:
-            return
+        pending_guilds = [guild for guild in self.guilds if guild.id not in self.synced_guild_ids]
+        for guild in pending_guilds:
+            await self.sync_guild_commands(guild)
 
-        for guild in self.guilds:
-            await self.ensure_ticket_config(guild)
-            await self.cache_invites(guild)
-            self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            print(f"{len(synced)} commande(s) slash synchronisée(s) sur {guild.name}.")
-
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync()
-        await self.schedule_existing_giveaways()
-        self.sync_done = True
+        if not self.sync_done:
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()
+            await self.schedule_existing_giveaways()
+            self.sync_done = True
 
 
 class MainCog(commands.Cog):
@@ -1907,6 +1975,13 @@ class MainCog(commands.Cog):
     async def on_ready(self) -> None:
         await self.bot.sync_commands_once()
         print(f"Bot connecté en tant que {self.bot.user}")
+
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        try:
+            await self.bot.sync_guild_commands(guild)
+        except discord.HTTPException:
+            pass
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
@@ -2104,7 +2179,7 @@ class MainCog(commands.Cog):
         embed = discord.Embed(title="Commandes", color=discord.Color.blurple())
         embed.add_field(
             name="Général",
-            value="/aide\n/ping\n/paiement\n/invites\n/userinfo\n/stats_membre\n/spin_stock",
+            value="/aide\n/ping\n/paiement\n/invites\n/userinfo\n/stats_membre\n/fiche_joueur\n/spin_stock",
             inline=False,
         )
         embed.add_field(
@@ -2129,7 +2204,7 @@ class MainCog(commands.Cog):
         )
         embed.add_field(
             name="Gacha",
-            value="/basic\n/advanced\n/deluxe\n/gacha_taux\n/basic_add\n/advanced_add\n/deluxe_add\n/spin_remove\n/spin_log",
+            value="/basic\n/advanced\n/deluxe\n/gacha_taux\n/basic_add\n/advanced_add\n/deluxe_add\n/spin_remove\n/spin_log\n/note_add\n/note_remove",
             inline=False,
         )
         embed.add_field(
@@ -2242,6 +2317,8 @@ class MainCog(commands.Cog):
             for giveaway in self.bot.get_giveaway_store(guild_id).values()
             if member.id in giveaway.get("winners", [])
         )
+        inventory = self.bot.get_gacha_inventory(member.id)
+        notes_count = len(self.bot.get_member_notes(member.id))
 
         embed = discord.Embed(
             title=f"Stats de {member.display_name}",
@@ -2254,6 +2331,73 @@ class MainCog(commands.Cog):
         embed.add_field(name="Tickets ouverts", value=str(open_tickets), inline=True)
         embed.add_field(name="Tickets archivés", value=str(archived_tickets), inline=True)
         embed.add_field(name="Giveaways gagnés", value=str(giveaways_won), inline=True)
+        embed.add_field(
+            name="Spins",
+            value=f"B:{inventory.get('basic', 0)} | A:{inventory.get('advanced', 0)} | D:{inventory.get('deluxe', 0)}",
+            inline=False,
+        )
+        embed.add_field(name="Notes staff", value=str(notes_count), inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="fiche_joueur", description="Affiche toutes les infos utiles d'un joueur")
+    @app_commands.describe(membre="Le membre à afficher")
+    @app_commands.default_permissions(manage_guild=True)
+    async def fiche_joueur(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild.id
+        invites_count = self.bot.get_invite_count(guild_id, membre.id)
+        warnings_count = len(self.bot.get_warning_store(guild_id).get(str(membre.id), []))
+        inventory = self.bot.get_gacha_inventory(membre.id)
+        notes = self.bot.get_member_notes(membre.id)
+        grant_history = self.bot.get_member_grant_history(membre.id)[-5:]
+        spin_history = [
+            entry for entry in self.bot.gacha_data.get("history", []) if int(entry.get("user_id", 0)) == membre.id
+        ][-5:]
+
+        embed = discord.Embed(
+            title=f"Fiche joueur • {membre.display_name}",
+            color=discord.Color.gold(),
+        )
+        embed.set_thumbnail(url=membre.display_avatar.url)
+        embed.add_field(name="Invitations", value=str(invites_count), inline=True)
+        embed.add_field(name="Warns", value=str(warnings_count), inline=True)
+        embed.add_field(name="Giveaway", value=f"x{get_member_giveaway_weight(membre):g}", inline=True)
+        embed.add_field(name="Basic Spins", value=str(inventory.get("basic", 0)), inline=True)
+        embed.add_field(name="Advanced Spins", value=str(inventory.get("advanced", 0)), inline=True)
+        embed.add_field(name="Deluxe Spins", value=str(inventory.get("deluxe", 0)), inline=True)
+
+        if grant_history:
+            grant_lines = []
+            for entry in reversed(grant_history):
+                action = "+" if entry.get("action") == "add" else "-"
+                reason = entry.get("reason") or "Aucune raison"
+                grant_lines.append(
+                    f"• {action}{entry.get('quantity', 0)} {str(entry.get('spin_type', '')).title()} par {entry.get('actor_name', 'Staff')} — {reason}"
+                )
+            embed.add_field(name="Historique spins accordés", value="\n".join(grant_lines), inline=False)
+
+        if spin_history:
+            spin_lines = []
+            for entry in reversed(spin_history):
+                spin_lines.append(
+                    f"• #{entry['claim_number']} — {entry['spin_type'].title()} — {entry['reward']} ({entry['rarity']})"
+                )
+            embed.add_field(name="Derniers spins utilisés", value="\n".join(spin_lines), inline=False)
+
+        if notes:
+            note_lines = []
+            start_index = max(1, len(notes) - 4)
+            for index, note in enumerate(reversed(notes[-5:]), start=start_index):
+                note_lines.append(f"• [{index}] {note.get('content', '')} — {note.get('author_name', 'Staff')}")
+            embed.add_field(name="Notes staff", value="\n".join(note_lines), inline=False)
+
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="spin_stock", description="Affiche le stock de spins")
@@ -2318,22 +2462,34 @@ class MainCog(commands.Cog):
         await self.bot.execute_gacha_spin(interaction, "deluxe")
 
     @app_commands.command(name="basic_add", description="Ajoute des Basic Spins à un joueur")
-    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter", raison="Raison / offre / promo")
     @app_commands.default_permissions(manage_guild=True)
     async def basic_add(
         self,
         interaction: discord.Interaction,
         membre: discord.Member,
         quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
     ) -> None:
         total = self.bot.add_gacha_spins(membre.id, "basic", int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            "basic",
+            int(quantite),
+            "add",
+            raison,
+            total,
+        )
         if interaction.guild is not None:
             await self.bot.log_gacha_spin(
                 interaction.guild,
                 membre,
                 "basic",
                 "Stock Update",
-                {"name": f"+{quantite} Basic Spin(s)", "reward_type": f"Total: {total}"},
+                {"name": f"+{quantite} Basic Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
                 0,
             )
         await interaction.response.send_message(
@@ -2342,22 +2498,34 @@ class MainCog(commands.Cog):
         )
 
     @app_commands.command(name="advanced_add", description="Ajoute des Advanced Spins à un joueur")
-    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter", raison="Raison / offre / promo")
     @app_commands.default_permissions(manage_guild=True)
     async def advanced_add(
         self,
         interaction: discord.Interaction,
         membre: discord.Member,
         quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
     ) -> None:
         total = self.bot.add_gacha_spins(membre.id, "advanced", int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            "advanced",
+            int(quantite),
+            "add",
+            raison,
+            total,
+        )
         if interaction.guild is not None:
             await self.bot.log_gacha_spin(
                 interaction.guild,
                 membre,
                 "advanced",
                 "Stock Update",
-                {"name": f"+{quantite} Advanced Spin(s)", "reward_type": f"Total: {total}"},
+                {"name": f"+{quantite} Advanced Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
                 0,
             )
         await interaction.response.send_message(
@@ -2366,22 +2534,34 @@ class MainCog(commands.Cog):
         )
 
     @app_commands.command(name="deluxe_add", description="Ajoute des Deluxe Spins à un joueur")
-    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter", raison="Raison / offre / promo")
     @app_commands.default_permissions(manage_guild=True)
     async def deluxe_add(
         self,
         interaction: discord.Interaction,
         membre: discord.Member,
         quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
     ) -> None:
         total = self.bot.add_gacha_spins(membre.id, "deluxe", int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            "deluxe",
+            int(quantite),
+            "add",
+            raison,
+            total,
+        )
         if interaction.guild is not None:
             await self.bot.log_gacha_spin(
                 interaction.guild,
                 membre,
                 "deluxe",
                 "Stock Update",
-                {"name": f"+{quantite} Deluxe Spin(s)", "reward_type": f"Total: {total}"},
+                {"name": f"+{quantite} Deluxe Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
                 0,
             )
         await interaction.response.send_message(
@@ -2390,7 +2570,7 @@ class MainCog(commands.Cog):
         )
 
     @app_commands.command(name="spin_remove", description="Retire des spins à un joueur")
-    @app_commands.describe(membre="Membre cible", type="Type de spin", quantite="Quantité à retirer")
+    @app_commands.describe(membre="Membre cible", type="Type de spin", quantite="Quantité à retirer", raison="Raison du retrait")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.choices(
         type=[
@@ -2405,19 +2585,69 @@ class MainCog(commands.Cog):
         membre: discord.Member,
         type: app_commands.Choice[str],
         quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
     ) -> None:
         total = self.bot.remove_gacha_spins(membre.id, type.value, int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            type.value,
+            int(quantite),
+            "remove",
+            raison,
+            total,
+        )
         if interaction.guild is not None:
             await self.bot.log_gacha_spin(
                 interaction.guild,
                 membre,
                 type.value,
                 "Stock Update",
-                {"name": f"-{quantite} {type.name} Spin(s)", "reward_type": f"Total: {total}"},
+                {"name": f"-{quantite} {type.name} Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
                 0,
             )
         await interaction.response.send_message(
             f"{quantite} {type.name} Spin(s) retirés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="note_add", description="Ajoute une note staff à un joueur")
+    @app_commands.describe(membre="Membre cible", note="Contenu de la note")
+    @app_commands.default_permissions(manage_guild=True)
+    async def note_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        note: str,
+    ) -> None:
+        self.bot.add_member_note(
+            membre.id,
+            interaction.user.id,
+            interaction.user.display_name,
+            note,
+        )
+        await interaction.response.send_message(
+            f"Note ajoutée pour {membre.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="note_remove", description="Retire une note staff d'un joueur")
+    @app_commands.describe(membre="Membre cible", index="Numéro de la note à supprimer")
+    @app_commands.default_permissions(manage_guild=True)
+    async def note_remove(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        index: app_commands.Range[int, 1, 100],
+    ) -> None:
+        removed = self.bot.remove_member_note(membre.id, int(index) - 1)
+        if removed is None:
+            await interaction.response.send_message("Cette note n'existe pas.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"Note supprimée pour {membre.mention} : {removed.get('content', '')}",
             ephemeral=True,
         )
 
