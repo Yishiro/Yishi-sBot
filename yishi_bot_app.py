@@ -3505,6 +3505,8 @@ class MainCog(commands.Cog):
         salon="Salon du panneau tickets",
         titre="Titre du panel",
         texte="Texte affiché au-dessus des catégories",
+        image_url="Lien d'image affichée sous le texte",
+        image="Image affichée sous le texte",
     )
     @app_commands.default_permissions(manage_guild=True)
     async def envoyer_panel_tickets_custom(
@@ -3513,6 +3515,8 @@ class MainCog(commands.Cog):
         salon: discord.TextChannel,
         titre: str | None = None,
         texte: str | None = None,
+        image_url: str | None = None,
+        image: discord.Attachment | None = None,
     ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message(
@@ -3535,12 +3539,21 @@ class MainCog(commands.Cog):
             )
             return
 
+        final_image_url = image_url
+        file: discord.File | None = None
+        if image is not None:
+            file = await image.to_file()
+            final_image_url = f"attachment://{file.filename}"
+
+        embed = build_custom_ticket_panel_embed(
+            title=titre or "Supra's Shop Support Center",
+            intro_text=texte,
+            image_url=final_image_url,
+        )
         await salon.send(
-            embed=build_custom_ticket_panel_embed(
-                title=titre or "Supra's Shop Support",
-                intro_text=texte,
-            ),
+            embed=embed,
             view=TicketPanelView(self.bot),
+            file=file,
         )
         await interaction.response.send_message(
             f"Panneau de tickets envoyé dans {salon.mention}.",
