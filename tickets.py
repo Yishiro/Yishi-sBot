@@ -5,24 +5,24 @@ import discord
 
 TICKET_TYPES = {
     "achat": {
-        "label": "Achat",
-        "emoji": "🛒",
-        "description": "Ouvrir un ticket pour un achat.",
+        "label": "Buy",
+        "emoji": "💳",
+        "description": "Create a buy ticket",
     },
-    "renseignement": {
-        "label": "Renseignement",
-        "emoji": "❓",
-        "description": "Poser une question au staff.",
+    "exchange": {
+        "label": "Exchange",
+        "emoji": "♻️",
+        "description": "Create a exchange ticket",
     },
-    "report": {
-        "label": "Report",
+    "help": {
+        "label": "Need Help?",
         "emoji": "🚨",
-        "description": "Signaler un probleme.",
+        "description": "Create a need help? ticket",
     },
-    "autre": {
-        "label": "Autre",
-        "emoji": "📩",
-        "description": "Toute autre demande.",
+    "partnership": {
+        "label": "Partnerships",
+        "emoji": "🤝",
+        "description": "Create a partnerships ticket",
     },
 }
 
@@ -38,10 +38,34 @@ def build_ticket_panel_embed() -> discord.Embed:
         title="Yishi's Shop Tickets",
         description=(
             "Bienvenue sur Yishi's Shop.\n\n"
-            "Selectionnez la categorie qui correspond le mieux a votre demande "
-            "afin que le staff puisse vous repondre rapidement.\n"
+            "Sélectionnez la catégorie qui correspond le mieux à votre demande "
+            "afin que le staff puisse vous répondre rapidement.\n"
             "Merci de rester clair, poli et patient pour faciliter le traitement de votre ticket.\n\n"
-            "*Notre staff vous repondra des que possible.*"
+            "*Notre staff vous répondra dès que possible.*"
         ),
         color=discord.Color.blurple(),
     )
+
+
+def build_custom_ticket_panel_embed(
+    title: str = "Ticket Center",
+    intro_text: str | None = None,
+) -> discord.Embed:
+    intro = (
+        intro_text.strip()
+        if intro_text
+        else "Choose the ticket category that matches your request."
+    )
+
+    lines: list[str] = [intro, ""]
+    for data in TICKET_TYPES.values():
+        lines.append(f"{data['emoji']} **{data['label']}**")
+        lines.append(data["description"])
+        lines.append("")
+
+    embed = discord.Embed(
+        title=title,
+        description="\n".join(lines).strip(),
+        color=discord.Color.dark_embed(),
+    )
+    return embed
