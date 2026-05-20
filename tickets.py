@@ -48,13 +48,16 @@ def build_ticket_panel_embed() -> discord.Embed:
 
 
 def build_custom_ticket_panel_embed(
-    title: str = "Ticket Center",
+    title: str = "Supra's Shop Support",
     intro_text: str | None = None,
 ) -> discord.Embed:
     intro = (
         intro_text.strip()
         if intro_text
-        else "Choose the ticket category that matches your request."
+        else (
+            "Welcome to Supra's Shop.\n"
+            "Choose the ticket category that matches your request so the staff can help you quickly."
+        )
     )
 
     lines: list[str] = [intro, ""]
@@ -68,4 +71,5 @@ def build_custom_ticket_panel_embed(
         description="\n".join(lines).strip(),
         color=discord.Color.dark_embed(),
     )
+    embed.set_footer(text="Supra's Shop • Support Center")
     return embed
