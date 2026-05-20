@@ -3537,7 +3537,7 @@ class MainCog(commands.Cog):
 
         await salon.send(
             embed=build_custom_ticket_panel_embed(
-                title=titre or "Ticket Center",
+                title=titre or "Supra's Shop Support",
                 intro_text=texte,
             ),
             view=TicketPanelView(self.bot),
