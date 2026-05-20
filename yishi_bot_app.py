@@ -19,7 +19,7 @@ from storage import (
     load_json,
     save_json,
 )
-from tickets import TICKET_TYPES, build_ticket_panel_embed, slugify_name
+from tickets import TICKET_TYPES, build_custom_ticket_panel_embed, build_ticket_panel_embed, slugify_name
 
 
 AUTO_STAFF_ROLE_NAME = "👑・𝐒taff"
@@ -1955,7 +1955,11 @@ class YishiBot(commands.Bot):
         print(f"{len(synced)} commande(s) slash synchronisée(s) sur {guild.name}.")
         self.synced_guild_ids.add(guild.id)
 
-    async def sync_commands_once(self) -> None:
+    async def sync_commands_once(self, force: bool = False) -> None:
+        if force:
+            self.synced_guild_ids.clear()
+            self.sync_done = False
+
         pending_guilds = [guild for guild in self.guilds if guild.id not in self.synced_guild_ids]
         for guild in pending_guilds:
             await self.sync_guild_commands(guild)
@@ -2194,7 +2198,7 @@ class MainCog(commands.Cog):
         )
         embed.add_field(
             name="Tickets",
-            value="/envoyer_panel_tickets\n/add_membre_ticket\n/remove_membre_ticket",
+            value="/envoyer_panel_tickets\n/envoyer_panel_tickets_custom\n/add_membre_ticket\n/remove_membre_ticket",
             inline=False,
         )
         embed.add_field(
@@ -2223,6 +2227,13 @@ class MainCog(commands.Cog):
             inline=False,
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="resync_commandes", description="Force la resynchronisation des slash commands")
+    @app_commands.default_permissions(manage_guild=True)
+    async def resync_commandes(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        await self.bot.sync_commands_once(force=True)
+        await interaction.followup.send("Commandes resynchronisées sur tous les serveurs du bot.", ephemeral=True)
 
     @app_commands.command(name="ping", description="Teste la latence du bot")
     async def ping(self, interaction: discord.Interaction) -> None:
@@ -3484,6 +3495,53 @@ class MainCog(commands.Cog):
             return
 
         await salon.send(embed=build_ticket_panel_embed(), view=TicketPanelView(self.bot))
+        await interaction.response.send_message(
+            f"Panneau de tickets envoyé dans {salon.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="envoyer_panel_tickets_custom", description="Envoie un panneau de tickets personnalisable")
+    @app_commands.describe(
+        salon="Salon du panneau tickets",
+        titre="Titre du panel",
+        texte="Texte affiché au-dessus des catégories",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def envoyer_panel_tickets_custom(
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+        titre: str | None = None,
+        texte: str | None = None,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "Commande indisponible ici.",
+                ephemeral=True,
+            )
+            return
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if not all(
+            [
+                config["staff_role_id"],
+                config["archive_role_id"],
+                config["ticket_category_id"],
+                config["archive_category_id"],
+            ]
+        ):
+            await interaction.response.send_message(
+                "Configure d'abord les rôles et catégories des tickets.",
+                ephemeral=True,
+            )
+            return
+
+        await salon.send(
+            embed=build_custom_ticket_panel_embed(
+                title=titre or "Ticket Center",
+                intro_text=texte,
+            ),
+            view=TicketPanelView(self.bot),
+        )
         await interaction.response.send_message(
             f"Panneau de tickets envoyé dans {salon.mention}.",
             ephemeral=True,
