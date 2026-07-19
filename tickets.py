@@ -48,28 +48,29 @@ def build_ticket_panel_embed() -> discord.Embed:
 
 
 def build_custom_ticket_panel_embed(
-    title: str = "Supra's Shop Support",
+    title: str = "Supra's Shop Support Center",
     intro_text: str | None = None,
+    image_url: str | None = None,
 ) -> discord.Embed:
     intro = (
         intro_text.strip()
         if intro_text
         else (
-            "Welcome to Supra's Shop.\n"
-            "Choose the ticket category that matches your request so the staff can help you quickly."
+            "## Supra's Shop Support Center\n"
+            "Welcome to our official support system.\n\n"
+            "## How It Works\n"
+            "» Select the appropriate category from the dropdown menu below\n"
+            "» Our team will respond as soon as possible\n"
+            "» Please read #📌・Tos before buying"
         )
     )
 
-    lines: list[str] = [intro, ""]
-    for data in TICKET_TYPES.values():
-        lines.append(f"{data['emoji']} **{data['label']}**")
-        lines.append(data["description"])
-        lines.append("")
-
     embed = discord.Embed(
         title=title,
-        description="\n".join(lines).strip(),
+        description=intro,
         color=discord.Color.dark_embed(),
     )
+    if image_url:
+        embed.set_image(url=image_url)
     embed.set_footer(text="Supra's Shop • Support Center")
     return embed
