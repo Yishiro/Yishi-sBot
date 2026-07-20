@@ -34,125 +34,141 @@ if TYPE_CHECKING:
 
 class GiveawaysCog(commands.Cog):
     def __init__(self, bot: YishiBot) -> None:
-            self.bot = bot
+        self.bot = bot
 
+    @app_commands.command(name="giveaway_create", description="Crée un giveaway")
+    @app_commands.describe(
+        salon="Salon du giveaway",
+        prix="Prix du giveaway",
+        duree="Exemple : 10m, 2h, 1d",
+        gagnants="Nombre de gagnants",
+    )
+    @app_commands.default_permissions(manage_guild=True)
     async def giveaway_create(
-            self,
-            interaction: discord.Interaction,
-            salon: discord.TextChannel,
-            prix: str,
-            duree: str,
-            gagnants: app_commands.Range[int, 1, 20],
-        ) -> None:
-            if interaction.guild is None:
-                await interaction.response.send_message(
-                    "Commande indisponible ici.",
-                    ephemeral=True,
-                )
-                return
-
-            seconds = parse_duration(duree)
-            if seconds is None:
-                await interaction.response.send_message(
-                    "Durée invalide. Utilise `10m`, `2h` ou `1d`.",
-                    ephemeral=True,
-                )
-                return
-
-            end_at = int(discord.utils.utcnow().timestamp()) + seconds
-            embed = discord.Embed(
-                title="🎉 Giveaway",
-                description=(
-                    f"Prix : **{prix}**\n"
-                    f"Gagnant(s) : **{gagnants}**\n"
-                    f"Fin : <t:{end_at}:R>\n"
-                    "Chances bonus : **rôles invitations + Server Booster**\n\n"
-                    "Clique sur Participer pour rejoindre le giveaway."
-                ),
-                color=discord.Color.gold(),
-            )
-            message = await salon.send(embed=embed, view=GiveawayView(self.bot))
-
-            store = self.bot.get_giveaway_store(interaction.guild.id)
-            store[str(message.id)] = {
-                "message_id": message.id,
-                "channel_id": salon.id,
-                "prize": prix,
-                "winners_count": int(gagnants),
-                "participants": [],
-                "winners": [],
-                "end_at": end_at,
-                "status": "active",
-                "created_by": interaction.user.id,
-            }
-            self.bot.save_giveaways()
-            self.bot.schedule_giveaway_end(interaction.guild.id, message.id, end_at)
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+        prix: str,
+        duree: str,
+        gagnants: app_commands.Range[int, 1, 20],
+    ) -> None:
+        if interaction.guild is None:
             await interaction.response.send_message(
-                f"Giveaway créé dans {salon.mention}. ID du message : `{message.id}`",
+                "Commande indisponible ici.",
                 ephemeral=True,
             )
+            return
 
+        seconds = parse_duration(duree)
+        if seconds is None:
+            await interaction.response.send_message(
+                "Durée invalide. Utilise `10m`, `2h` ou `1d`.",
+                ephemeral=True,
+            )
+            return
+
+        end_at = int(discord.utils.utcnow().timestamp()) + seconds
+        embed = discord.Embed(
+            title="🎉 Giveaway",
+            description=(
+                f"Prix : **{prix}**\n"
+                f"Gagnant(s) : **{gagnants}**\n"
+                f"Fin : <t:{end_at}:R>\n"
+                "Chances bonus : **rôles invitations + Server Booster**\n\n"
+                "Clique sur Participer pour rejoindre le giveaway."
+            ),
+            color=discord.Color.gold(),
+        )
+        message = await salon.send(embed=embed, view=GiveawayView(self.bot))
+
+        store = self.bot.get_giveaway_store(interaction.guild.id)
+        store[str(message.id)] = {
+            "message_id": message.id,
+            "channel_id": salon.id,
+            "prize": prix,
+            "winners_count": int(gagnants),
+            "participants": [],
+            "winners": [],
+            "end_at": end_at,
+            "status": "active",
+            "created_by": interaction.user.id,
+        }
+        self.bot.save_giveaways()
+        self.bot.schedule_giveaway_end(interaction.guild.id, message.id, end_at)
+        await interaction.response.send_message(
+            f"Giveaway créé dans {salon.mention}. ID du message : `{message.id}`",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="giveaway_end", description="Termine un giveaway maintenant")
+    @app_commands.describe(message_id="ID du message du giveaway")
+    @app_commands.default_permissions(manage_guild=True)
     async def giveaway_end(self, interaction: discord.Interaction, message_id: str) -> None:
-            if interaction.guild is None or not message_id.isdigit():
-                await interaction.response.send_message("ID invalide.", ephemeral=True)
-                return
-            await self.bot.finish_giveaway(interaction.guild.id, int(message_id))
+        if interaction.guild is None or not message_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
+            return
+        await self.bot.finish_giveaway(interaction.guild.id, int(message_id))
+        await interaction.response.send_message(
+            "Giveaway terminé si l'ID était valide.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="giveaway_list", description="Affiche la liste des giveaways avec leur ID")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_list(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
             await interaction.response.send_message(
-                "Giveaway terminé si l'ID était valide.",
+                "Commande indisponible ici.",
                 ephemeral=True,
             )
+            return
 
-    async def giveaway_list(self, interaction: discord.Interaction) -> None:
-            if interaction.guild is None:
-                await interaction.response.send_message(
-                    "Commande indisponible ici.",
-                    ephemeral=True,
-                )
-                return
+        store = self.bot.get_giveaway_store(interaction.guild.id)
+        if not store:
+            await interaction.response.send_message(
+                "Aucun giveaway enregistré sur ce serveur.",
+                ephemeral=True,
+            )
+            return
 
-            store = self.bot.get_giveaway_store(interaction.guild.id)
-            if not store:
-                await interaction.response.send_message(
-                    "Aucun giveaway enregistré sur ce serveur.",
-                    ephemeral=True,
-                )
-                return
+        giveaways = sorted(
+            store.values(),
+            key=lambda giveaway: int(giveaway.get("end_at", 0)),
+            reverse=True,
+        )
 
-            giveaways = sorted(
-                store.values(),
-                key=lambda giveaway: int(giveaway.get("end_at", 0)),
-                reverse=True,
+        embed = discord.Embed(
+            title="Liste des giveaways",
+            description="Voici les IDs des giveaways avec leur prix pour les reconnaître facilement.",
+            color=discord.Color.blurple(),
+        )
+        for giveaway in giveaways[:25]:
+            status = "Actif" if giveaway.get("status") == "active" else "Terminé"
+            embed.add_field(
+                name=f"{giveaway['prize']}",
+                value=(
+                    f"ID : `{giveaway['message_id']}`\n"
+                    f"Statut : {status}\n"
+                    f"Gagnants : {giveaway['winners_count']}"
+                ),
+                inline=False,
             )
 
-            embed = discord.Embed(
-                title="Liste des giveaways",
-                description="Voici les IDs des giveaways avec leur prix pour les reconnaître facilement.",
-                color=discord.Color.blurple(),
-            )
-            for giveaway in giveaways[:25]:
-                status = "Actif" if giveaway.get("status") == "active" else "Terminé"
-                embed.add_field(
-                    name=f"{giveaway['prize']}",
-                    value=(
-                        f"ID : `{giveaway['message_id']}`\n"
-                        f"Statut : {status}\n"
-                        f"Gagnants : {giveaway['winners_count']}"
-                    ),
-                    inline=False,
-                )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-
+    @app_commands.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
+    @app_commands.describe(message_id="ID du message du giveaway")
+    @app_commands.default_permissions(manage_guild=True)
     async def giveaway_reroll(self, interaction: discord.Interaction, message_id: str) -> None:
-            if interaction.guild is None or not message_id.isdigit():
-                await interaction.response.send_message("ID invalide.", ephemeral=True)
-                return
-            winners = await self.bot.reroll_giveaway(interaction.guild.id, int(message_id))
-            if not winners:
-                await interaction.response.send_message(
-                    "Aucun nouveau gagnant valide trouvé.",
-                    ephemeral=True,
-                )
-                return
-            mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
-            await interaction.response.send_message(f"Nouveau gagnant : {mentions}")
+        if interaction.guild is None or not message_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
+            return
+        winners = await self.bot.reroll_giveaway(interaction.guild.id, int(message_id))
+        if not winners:
+            await interaction.response.send_message(
+                "Aucun nouveau gagnant valide trouvé.",
+                ephemeral=True,
+            )
+            return
+        mentions = ", ".join(f"<@{winner_id}>" for winner_id in winners)
+        await interaction.response.send_message(f"Nouveau gagnant : {mentions}")

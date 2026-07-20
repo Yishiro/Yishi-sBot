@@ -34,249 +34,283 @@ if TYPE_CHECKING:
 
 class GachaCog(commands.Cog):
     def __init__(self, bot: YishiBot) -> None:
-            self.bot = bot
+        self.bot = bot
 
+    @app_commands.command(name="spin_stock", description="Affiche le stock de spins")
+    @app_commands.describe(membre="Membre à afficher")
     async def spin_stock(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member | None = None,
-        ) -> None:
-            if membre is not None:
-                inventory = self.bot.get_gacha_inventory(membre.id)
-                embed = discord.Embed(
-                    title=f"Stock de {membre.display_name}",
-                    color=discord.Color.gold(),
-                )
-                embed.add_field(name="Basic", value=str(inventory.get("basic", 0)), inline=True)
-                embed.add_field(name="Advanced", value=str(inventory.get("advanced", 0)), inline=True)
-                embed.add_field(name="Deluxe", value=str(inventory.get("deluxe", 0)), inline=True)
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-                return
-
-            inventories = self.bot.gacha_data.get("inventories", {})
-            if not inventories:
-                await interaction.response.send_message("Aucun stock de spin enregistré.", ephemeral=True)
-                return
-
-            lines: list[str] = []
-            for user_id, inventory in inventories.items():
-                total = int(inventory.get("basic", 0)) + int(inventory.get("advanced", 0)) + int(inventory.get("deluxe", 0))
-                if total <= 0:
-                    continue
-                member_obj = interaction.guild.get_member(int(user_id)) if interaction.guild is not None else None
-                name = member_obj.display_name if member_obj is not None else user_id
-                lines.append(
-                    f"• {name} — Basic: {inventory.get('basic', 0)} | Advanced: {inventory.get('advanced', 0)} | Deluxe: {inventory.get('deluxe', 0)}"
-                )
-            if not lines:
-                await interaction.response.send_message("Aucun stock de spin actif.", ephemeral=True)
-                return
-            embed = discord.Embed(title="Stock global des spins", description="\n".join(lines[:30]), color=discord.Color.gold())
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    async def gacha_taux(self, interaction: discord.Interaction) -> None:
-            embeds = [
-                self.bot.build_gacha_rates_embed("basic"),
-                self.bot.build_gacha_rates_embed("advanced"),
-                self.bot.build_gacha_rates_embed("deluxe"),
-            ]
-            await interaction.response.send_message(embeds=embeds)
-
-    async def basic(self, interaction: discord.Interaction) -> None:
-            await self.bot.execute_gacha_spin(interaction, "basic")
-
-    async def advanced(self, interaction: discord.Interaction) -> None:
-            await self.bot.execute_gacha_spin(interaction, "advanced")
-
-    async def deluxe(self, interaction: discord.Interaction) -> None:
-            await self.bot.execute_gacha_spin(interaction, "deluxe")
-
-    async def basic_add(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-            quantite: app_commands.Range[int, 1, 100],
-            raison: str | None = None,
-        ) -> None:
-            total = self.bot.add_gacha_spins(membre.id, "basic", int(quantite))
-            self.bot.record_spin_adjustment(
-                membre.id,
-                membre.display_name,
-                interaction.user.id,
-                interaction.user.display_name,
-                "basic",
-                int(quantite),
-                "add",
-                raison,
-                total,
-            )
-            if interaction.guild is not None:
-                await self.bot.log_gacha_spin(
-                    interaction.guild,
-                    membre,
-                    "basic",
-                    "Stock Update",
-                    {"name": f"+{quantite} Basic Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
-                    0,
-                )
-            await interaction.response.send_message(
-                f"{quantite} Basic Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
-                ephemeral=True,
-            )
-
-    async def advanced_add(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-            quantite: app_commands.Range[int, 1, 100],
-            raison: str | None = None,
-        ) -> None:
-            total = self.bot.add_gacha_spins(membre.id, "advanced", int(quantite))
-            self.bot.record_spin_adjustment(
-                membre.id,
-                membre.display_name,
-                interaction.user.id,
-                interaction.user.display_name,
-                "advanced",
-                int(quantite),
-                "add",
-                raison,
-                total,
-            )
-            if interaction.guild is not None:
-                await self.bot.log_gacha_spin(
-                    interaction.guild,
-                    membre,
-                    "advanced",
-                    "Stock Update",
-                    {"name": f"+{quantite} Advanced Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
-                    0,
-                )
-            await interaction.response.send_message(
-                f"{quantite} Advanced Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
-                ephemeral=True,
-            )
-
-    async def deluxe_add(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-            quantite: app_commands.Range[int, 1, 100],
-            raison: str | None = None,
-        ) -> None:
-            total = self.bot.add_gacha_spins(membre.id, "deluxe", int(quantite))
-            self.bot.record_spin_adjustment(
-                membre.id,
-                membre.display_name,
-                interaction.user.id,
-                interaction.user.display_name,
-                "deluxe",
-                int(quantite),
-                "add",
-                raison,
-                total,
-            )
-            if interaction.guild is not None:
-                await self.bot.log_gacha_spin(
-                    interaction.guild,
-                    membre,
-                    "deluxe",
-                    "Stock Update",
-                    {"name": f"+{quantite} Deluxe Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
-                    0,
-                )
-            await interaction.response.send_message(
-                f"{quantite} Deluxe Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
-                ephemeral=True,
-            )
-
-    async def spin_remove(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-            type: app_commands.Choice[str],
-            quantite: app_commands.Range[int, 1, 100],
-            raison: str | None = None,
-        ) -> None:
-            total = self.bot.remove_gacha_spins(membre.id, type.value, int(quantite))
-            self.bot.record_spin_adjustment(
-                membre.id,
-                membre.display_name,
-                interaction.user.id,
-                interaction.user.display_name,
-                type.value,
-                int(quantite),
-                "remove",
-                raison,
-                total,
-            )
-            if interaction.guild is not None:
-                await self.bot.log_gacha_spin(
-                    interaction.guild,
-                    membre,
-                    type.value,
-                    "Stock Update",
-                    {"name": f"-{quantite} {type.name} Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
-                    0,
-                )
-            await interaction.response.send_message(
-                f"{quantite} {type.name} Spin(s) retirés à {membre.mention}. Nouveau total : {total}.",
-                ephemeral=True,
-            )
-
-    async def note_add(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-            note: str,
-        ) -> None:
-            self.bot.add_member_note(
-                membre.id,
-                interaction.user.id,
-                interaction.user.display_name,
-                note,
-            )
-            await interaction.response.send_message(
-                f"Note ajoutée pour {membre.mention}.",
-                ephemeral=True,
-            )
-
-    async def note_remove(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-            index: app_commands.Range[int, 1, 100],
-        ) -> None:
-            removed = self.bot.remove_member_note(membre.id, int(index) - 1)
-            if removed is None:
-                await interaction.response.send_message("Cette note n'existe pas.", ephemeral=True)
-                return
-            await interaction.response.send_message(
-                f"Note supprimée pour {membre.mention} : {removed.get('content', '')}",
-                ephemeral=True,
-            )
-
-    async def spin_log(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member | None = None,
-        ) -> None:
-            history = self.bot.gacha_data.get("history", [])
-            if membre is not None:
-                history = [entry for entry in history if int(entry["user_id"]) == membre.id]
-            if not history:
-                await interaction.response.send_message("Aucun spin enregistré.", ephemeral=True)
-                return
-
-            latest = list(reversed(history[-20:]))
-            lines = []
-            for entry in latest:
-                lines.append(
-                    f"• #{entry['claim_number']} — {entry['display_name']} — {entry['spin_type'].title()} — {entry['reward']} ({entry['rarity']})"
-                )
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member | None = None,
+    ) -> None:
+        if membre is not None:
+            inventory = self.bot.get_gacha_inventory(membre.id)
             embed = discord.Embed(
-                title="Historique des spins" if membre is None else f"Historique de {membre.display_name}",
-                description="\n".join(lines),
-                color=discord.Color.blurple(),
+                title=f"Stock de {membre.display_name}",
+                color=discord.Color.gold(),
             )
+            embed.add_field(name="Basic", value=str(inventory.get("basic", 0)), inline=True)
+            embed.add_field(name="Advanced", value=str(inventory.get("advanced", 0)), inline=True)
+            embed.add_field(name="Deluxe", value=str(inventory.get("deluxe", 0)), inline=True)
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        inventories = self.bot.gacha_data.get("inventories", {})
+        if not inventories:
+            await interaction.response.send_message("Aucun stock de spin enregistré.", ephemeral=True)
+            return
+
+        lines: list[str] = []
+        for user_id, inventory in inventories.items():
+            total = int(inventory.get("basic", 0)) + int(inventory.get("advanced", 0)) + int(inventory.get("deluxe", 0))
+            if total <= 0:
+                continue
+            member_obj = interaction.guild.get_member(int(user_id)) if interaction.guild is not None else None
+            name = member_obj.display_name if member_obj is not None else user_id
+            lines.append(
+                f"• {name} — Basic: {inventory.get('basic', 0)} | Advanced: {inventory.get('advanced', 0)} | Deluxe: {inventory.get('deluxe', 0)}"
+            )
+        if not lines:
+            await interaction.response.send_message("Aucun stock de spin actif.", ephemeral=True)
+            return
+        embed = discord.Embed(title="Stock global des spins", description="\n".join(lines[:30]), color=discord.Color.gold())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="gacha_taux", description="Envoie les taux de drop des spins")
+    async def gacha_taux(self, interaction: discord.Interaction) -> None:
+        embeds = [
+            self.bot.build_gacha_rates_embed("basic"),
+            self.bot.build_gacha_rates_embed("advanced"),
+            self.bot.build_gacha_rates_embed("deluxe"),
+        ]
+        await interaction.response.send_message(embeds=embeds)
+
+    @app_commands.command(name="basic", description="Utilise un Basic Spin")
+    async def basic(self, interaction: discord.Interaction) -> None:
+        await self.bot.execute_gacha_spin(interaction, "basic")
+
+    @app_commands.command(name="advanced", description="Utilise un Advanced Spin")
+    async def advanced(self, interaction: discord.Interaction) -> None:
+        await self.bot.execute_gacha_spin(interaction, "advanced")
+
+    @app_commands.command(name="deluxe", description="Utilise un Deluxe Spin")
+    async def deluxe(self, interaction: discord.Interaction) -> None:
+        await self.bot.execute_gacha_spin(interaction, "deluxe")
+
+    @app_commands.command(name="basic_add", description="Ajoute des Basic Spins à un joueur")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter", raison="Raison / offre / promo")
+    @app_commands.default_permissions(manage_guild=True)
+    async def basic_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
+    ) -> None:
+        total = self.bot.add_gacha_spins(membre.id, "basic", int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            "basic",
+            int(quantite),
+            "add",
+            raison,
+            total,
+        )
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                "basic",
+                "Stock Update",
+                {"name": f"+{quantite} Basic Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} Basic Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="advanced_add", description="Ajoute des Advanced Spins à un joueur")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter", raison="Raison / offre / promo")
+    @app_commands.default_permissions(manage_guild=True)
+    async def advanced_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
+    ) -> None:
+        total = self.bot.add_gacha_spins(membre.id, "advanced", int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            "advanced",
+            int(quantite),
+            "add",
+            raison,
+            total,
+        )
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                "advanced",
+                "Stock Update",
+                {"name": f"+{quantite} Advanced Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} Advanced Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="deluxe_add", description="Ajoute des Deluxe Spins à un joueur")
+    @app_commands.describe(membre="Membre cible", quantite="Quantité à ajouter", raison="Raison / offre / promo")
+    @app_commands.default_permissions(manage_guild=True)
+    async def deluxe_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
+    ) -> None:
+        total = self.bot.add_gacha_spins(membre.id, "deluxe", int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            "deluxe",
+            int(quantite),
+            "add",
+            raison,
+            total,
+        )
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                "deluxe",
+                "Stock Update",
+                {"name": f"+{quantite} Deluxe Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} Deluxe Spin(s) ajoutés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="spin_remove", description="Retire des spins à un joueur")
+    @app_commands.describe(membre="Membre cible", type="Type de spin", quantite="Quantité à retirer", raison="Raison du retrait")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.choices(
+        type=[
+            app_commands.Choice(name="Basic", value="basic"),
+            app_commands.Choice(name="Advanced", value="advanced"),
+            app_commands.Choice(name="Deluxe", value="deluxe"),
+        ]
+    )
+    async def spin_remove(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        type: app_commands.Choice[str],
+        quantite: app_commands.Range[int, 1, 100],
+        raison: str | None = None,
+    ) -> None:
+        total = self.bot.remove_gacha_spins(membre.id, type.value, int(quantite))
+        self.bot.record_spin_adjustment(
+            membre.id,
+            membre.display_name,
+            interaction.user.id,
+            interaction.user.display_name,
+            type.value,
+            int(quantite),
+            "remove",
+            raison,
+            total,
+        )
+        if interaction.guild is not None:
+            await self.bot.log_gacha_spin(
+                interaction.guild,
+                membre,
+                type.value,
+                "Stock Update",
+                {"name": f"-{quantite} {type.name} Spin(s)", "reward_type": f"Total: {total} | {raison or 'Aucune raison'}"},
+                0,
+            )
+        await interaction.response.send_message(
+            f"{quantite} {type.name} Spin(s) retirés à {membre.mention}. Nouveau total : {total}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="note_add", description="Ajoute une note staff à un joueur")
+    @app_commands.describe(membre="Membre cible", note="Contenu de la note")
+    @app_commands.default_permissions(manage_guild=True)
+    async def note_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        note: str,
+    ) -> None:
+        self.bot.add_member_note(
+            membre.id,
+            interaction.user.id,
+            interaction.user.display_name,
+            note,
+        )
+        await interaction.response.send_message(
+            f"Note ajoutée pour {membre.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="note_remove", description="Retire une note staff d'un joueur")
+    @app_commands.describe(membre="Membre cible", index="Numéro de la note à supprimer")
+    @app_commands.default_permissions(manage_guild=True)
+    async def note_remove(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        index: app_commands.Range[int, 1, 100],
+    ) -> None:
+        removed = self.bot.remove_member_note(membre.id, int(index) - 1)
+        if removed is None:
+            await interaction.response.send_message("Cette note n'existe pas.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"Note supprimée pour {membre.mention} : {removed.get('content', '')}",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="spin_log", description="Affiche l'historique des spins")
+    @app_commands.describe(membre="Membre à filtrer")
+    @app_commands.default_permissions(manage_guild=True)
+    async def spin_log(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member | None = None,
+    ) -> None:
+        history = self.bot.gacha_data.get("history", [])
+        if membre is not None:
+            history = [entry for entry in history if int(entry["user_id"]) == membre.id]
+        if not history:
+            await interaction.response.send_message("Aucun spin enregistré.", ephemeral=True)
+            return
+
+        latest = list(reversed(history[-20:]))
+        lines = []
+        for entry in latest:
+            lines.append(
+                f"• #{entry['claim_number']} — {entry['display_name']} — {entry['spin_type'].title()} — {entry['reward']} ({entry['rarity']})"
+            )
+        embed = discord.Embed(
+            title="Historique des spins" if membre is None else f"Historique de {membre.display_name}",
+            description="\n".join(lines),
+            color=discord.Color.blurple(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)

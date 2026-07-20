@@ -34,140 +34,158 @@ if TYPE_CHECKING:
 
 class TicketsCog(commands.Cog):
     def __init__(self, bot: YishiBot) -> None:
-            self.bot = bot
+        self.bot = bot
 
+    @app_commands.command(name="add_membre_ticket", description="Ajoute un membre au ticket actuel")
+    @app_commands.describe(membre="Le membre à ajouter au ticket")
+    @app_commands.default_permissions(manage_channels=True)
     async def add_membre_ticket(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-        ) -> None:
-            if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
-                await interaction.response.send_message(
-                    "Commande indisponible ici.",
-                    ephemeral=True,
-                )
-                return
-            ticket = self.bot.get_ticket_store(interaction.guild.id)["channels"].get(str(interaction.channel.id))
-            if ticket is None:
-                await interaction.response.send_message(
-                    "Cette commande doit être utilisée dans un ticket.",
-                    ephemeral=True,
-                )
-                return
-
-            await interaction.channel.set_permissions(
-                membre,
-                overwrite=discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    attach_files=True,
-                    embed_links=True,
-                ),
-            )
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
             await interaction.response.send_message(
-                f"{membre.mention} a été ajouté au ticket.",
+                "Commande indisponible ici.",
                 ephemeral=True,
             )
-            await interaction.channel.send(
-                f"{membre.mention} a été ajouté au ticket par {interaction.user.mention}."
+            return
+        ticket = self.bot.get_ticket_store(interaction.guild.id)["channels"].get(str(interaction.channel.id))
+        if ticket is None:
+            await interaction.response.send_message(
+                "Cette commande doit être utilisée dans un ticket.",
+                ephemeral=True,
             )
+            return
 
+        await interaction.channel.set_permissions(
+            membre,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+        )
+        await interaction.response.send_message(
+            f"{membre.mention} a été ajouté au ticket.",
+            ephemeral=True,
+        )
+        await interaction.channel.send(
+            f"{membre.mention} a été ajouté au ticket par {interaction.user.mention}."
+        )
+
+    @app_commands.command(name="remove_membre_ticket", description="Retire un membre du ticket actuel")
+    @app_commands.describe(membre="Le membre à retirer du ticket")
+    @app_commands.default_permissions(manage_channels=True)
     async def remove_membre_ticket(
-            self,
-            interaction: discord.Interaction,
-            membre: discord.Member,
-        ) -> None:
-            if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
-                await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
-                return
-            ticket = self.bot.get_ticket_store(interaction.guild.id)["channels"].get(str(interaction.channel.id))
-            if ticket is None:
-                await interaction.response.send_message("Cette commande doit être utilisée dans un ticket.", ephemeral=True)
-                return
-            await interaction.channel.set_permissions(membre, overwrite=None)
-            await interaction.response.send_message(f"{membre.mention} a été retiré du ticket.", ephemeral=True)
-            await interaction.channel.send(f"{membre.mention} a été retiré du ticket par {interaction.user.mention}.")
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        ticket = self.bot.get_ticket_store(interaction.guild.id)["channels"].get(str(interaction.channel.id))
+        if ticket is None:
+            await interaction.response.send_message("Cette commande doit être utilisée dans un ticket.", ephemeral=True)
+            return
+        await interaction.channel.set_permissions(membre, overwrite=None)
+        await interaction.response.send_message(f"{membre.mention} a été retiré du ticket.", ephemeral=True)
+        await interaction.channel.send(f"{membre.mention} a été retiré du ticket par {interaction.user.mention}.")
 
+    @app_commands.command(name="envoyer_panel_tickets", description="Envoie le panneau interactif de tickets")
+    @app_commands.describe(salon="Salon du panneau tickets")
+    @app_commands.default_permissions(manage_guild=True)
     async def envoyer_panel_tickets(
-            self,
-            interaction: discord.Interaction,
-            salon: discord.TextChannel,
-        ) -> None:
-            if interaction.guild is None:
-                await interaction.response.send_message(
-                    "Commande indisponible ici.",
-                    ephemeral=True,
-                )
-                return
-            config = self.bot.get_guild_config(interaction.guild.id)
-            if not all(
-                [
-                    config["staff_role_id"],
-                    config["archive_role_id"],
-                    config["ticket_category_id"],
-                    config["archive_category_id"],
-                ]
-            ):
-                await interaction.response.send_message(
-                    "Configure d'abord les rôles et catégories des tickets.",
-                    ephemeral=True,
-                )
-                return
-
-            await salon.send(embed=build_ticket_panel_embed(), view=TicketPanelView(self.bot))
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+    ) -> None:
+        if interaction.guild is None:
             await interaction.response.send_message(
-                f"Panneau de tickets envoyé dans {salon.mention}.",
+                "Commande indisponible ici.",
                 ephemeral=True,
             )
+            return
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if not all(
+            [
+                config["staff_role_id"],
+                config["archive_role_id"],
+                config["ticket_category_id"],
+                config["archive_category_id"],
+            ]
+        ):
+            await interaction.response.send_message(
+                "Configure d'abord les rôles et catégories des tickets.",
+                ephemeral=True,
+            )
+            return
 
+        await salon.send(embed=build_ticket_panel_embed(), view=TicketPanelView(self.bot))
+        await interaction.response.send_message(
+            f"Panneau de tickets envoyé dans {salon.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="envoyer_panel_tickets_custom", description="Envoie un panneau de tickets personnalisable")
+    @app_commands.describe(
+        salon="Salon du panneau tickets",
+        titre="Titre du panel",
+        texte="Texte affiché au-dessus des catégories",
+        image_url="Lien d'image affichée sous le texte",
+        image="Image affichée sous le texte",
+    )
+    @app_commands.default_permissions(manage_guild=True)
     async def envoyer_panel_tickets_custom(
-            self,
-            interaction: discord.Interaction,
-            salon: discord.TextChannel,
-            titre: str | None = None,
-            texte: str | None = None,
-            image_url: str | None = None,
-            image: discord.Attachment | None = None,
-        ) -> None:
-            if interaction.guild is None:
-                await interaction.response.send_message(
-                    "Commande indisponible ici.",
-                    ephemeral=True,
-                )
-                return
-            config = self.bot.get_guild_config(interaction.guild.id)
-            if not all(
-                [
-                    config["staff_role_id"],
-                    config["archive_role_id"],
-                    config["ticket_category_id"],
-                    config["archive_category_id"],
-                ]
-            ):
-                await interaction.response.send_message(
-                    "Configure d'abord les rôles et catégories des tickets.",
-                    ephemeral=True,
-                )
-                return
-
-            final_image_url = image_url
-            file: discord.File | None = None
-            if image is not None:
-                file = await image.to_file()
-                final_image_url = f"attachment://{file.filename}"
-
-            embed = build_custom_ticket_panel_embed(
-                title=titre or "Supra's Shop Support Center",
-                intro_text=texte,
-                image_url=final_image_url,
-            )
-            await salon.send(
-                embed=embed,
-                view=TicketPanelView(self.bot),
-                file=file,
-            )
+        self,
+        interaction: discord.Interaction,
+        salon: discord.TextChannel,
+        titre: str | None = None,
+        texte: str | None = None,
+        image_url: str | None = None,
+        image: discord.Attachment | None = None,
+    ) -> None:
+        if interaction.guild is None:
             await interaction.response.send_message(
-                f"Panneau de tickets envoyé dans {salon.mention}.",
+                "Commande indisponible ici.",
                 ephemeral=True,
             )
+            return
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if not all(
+            [
+                config["staff_role_id"],
+                config["archive_role_id"],
+                config["ticket_category_id"],
+                config["archive_category_id"],
+            ]
+        ):
+            await interaction.response.send_message(
+                "Configure d'abord les rôles et catégories des tickets.",
+                ephemeral=True,
+            )
+            return
+
+        final_image_url = image_url
+        file: discord.File | None = None
+        if image is not None:
+            file = await image.to_file()
+            final_image_url = f"attachment://{file.filename}"
+
+        embed = build_custom_ticket_panel_embed(
+            title=titre or "Supra's Shop Support Center",
+            intro_text=texte,
+            image_url=final_image_url,
+        )
+        await salon.send(
+            embed=embed,
+            view=TicketPanelView(self.bot),
+            file=file,
+        )
+        await interaction.response.send_message(
+            f"Panneau de tickets envoyé dans {salon.mention}.",
+            ephemeral=True,
+        )

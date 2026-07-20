@@ -1422,7 +1422,6 @@ class YishiBot(commands.Bot):
             await self.sync_guild_commands(guild)
 
         if not self.sync_done:
-            self.tree.clear_commands(guild=None)
             await self.tree.sync()
             await self.schedule_existing_giveaways()
             self.sync_done = True
