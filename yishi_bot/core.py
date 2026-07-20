@@ -1504,9 +1504,10 @@ class YishiBot(commands.Bot):
     async def sync_guild_commands(self, guild: discord.Guild) -> None:
         await self.ensure_ticket_config(guild)
         await self.cache_invites(guild)
+        self.tree.clear_commands(guild=guild)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)
-        print(f"{len(synced)} commande(s) slash synchronisée(s) sur {guild.name}.")
+        print(f"{len(synced)} commande(s) slash synchronisées sur {guild.name}.")
         self.synced_guild_ids.add(guild.id)
 
     async def sync_commands_once(self, force: bool = False) -> None:
@@ -1519,6 +1520,7 @@ class YishiBot(commands.Bot):
             await self.sync_guild_commands(guild)
 
         if not self.sync_done:
+            self.tree.clear_commands(guild=None)
             await self.tree.sync()
             await self.schedule_existing_giveaways()
             self.sync_done = True
