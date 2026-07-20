@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ GACHA_FILE = BASE_DIR / "gacha.json"
 
 
 def load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text(json.dumps(default, indent=2), encoding="utf-8")
         return json.loads(json.dumps(default))
@@ -25,4 +27,7 @@ def load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_json(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(f"{path.suffix}.tmp")
+    temp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(temp_path, path)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -20,6 +21,7 @@ from yishi_bot.constants import (
     AUTO_TRANSCRIPT_CHANNEL_NAME,
     GACHA_REWARDS,
     GACHA_SPIN_TYPES,
+    LINK_PATTERN,
     RULES_ACCEPT_TEXT,
     RULES_TEXT,
     WELCOME_ADVANTAGES,
@@ -47,6 +49,16 @@ class EventsCog(commands.Cog):
             await self.bot.sync_guild_commands(guild)
         except discord.HTTPException:
             pass
+
+    @commands.Cog.listener()
+    async def on_invite_create(self, invite: discord.Invite) -> None:
+        if invite.guild is not None:
+            await self.bot.cache_invites(invite.guild)
+
+    @commands.Cog.listener()
+    async def on_invite_delete(self, invite: discord.Invite) -> None:
+        if invite.guild is not None:
+            await self.bot.cache_invites(invite.guild)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:

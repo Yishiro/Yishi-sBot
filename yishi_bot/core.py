@@ -53,6 +53,8 @@ class YishiBot(commands.Bot):
         self.invite_data = load_json(INVITES_FILE, {})
         self.giveaway_data = load_json(GIVEAWAYS_FILE, {})
         self.gacha_data = load_json(GACHA_FILE, default_gacha_store())
+        if self._migrate_invite_data():
+            self.save_invites()
         if merge_missing_defaults(self.gacha_data, default_gacha_store()):
             self.save_gacha()
 
@@ -103,10 +105,80 @@ class YishiBot(commands.Bot):
             self.save_warnings()
         return self.warning_data[key]
 
+    def default_invite_store(self) -> dict[str, Any]:
+        return {
+            "counts": {},
+            "invite_snapshot": {},
+            "member_inviter_ids": {},
+        }
+
+    def _migrate_invite_data(self) -> bool:
+        changed = False
+        for guild_id, value in list(self.invite_data.items()):
+            if not isinstance(value, dict):
+                self.invite_data[guild_id] = self.default_invite_store()
+                changed = True
+                continue
+
+            if "counts" not in value:
+                legacy_counts = {
+                    str(user_id): int(count)
+                    for user_id, count in value.items()
+                    if isinstance(count, (int, float, str)) and str(count).lstrip("-").isdigit()
+                }
+                self.invite_data[guild_id] = {
+                    "counts": legacy_counts,
+                    "invite_snapshot": {},
+                    "member_inviter_ids": {},
+                }
+                changed = True
+                continue
+
+            defaults = self.default_invite_store()
+            for key, default_value in defaults.items():
+                if key not in value or not isinstance(value[key], dict):
+                    value[key] = default_value.copy()
+                    changed = True
+
+            normalized_counts: dict[str, int] = {}
+            for user_id, count in value["counts"].items():
+                try:
+                    normalized_counts[str(user_id)] = int(count)
+                except (TypeError, ValueError):
+                    changed = True
+            if normalized_counts != value["counts"]:
+                value["counts"] = normalized_counts
+                changed = True
+
+            normalized_snapshot: dict[str, int] = {}
+            for code, uses in value["invite_snapshot"].items():
+                try:
+                    normalized_snapshot[str(code)] = int(uses)
+                except (TypeError, ValueError):
+                    changed = True
+            if normalized_snapshot != value["invite_snapshot"]:
+                value["invite_snapshot"] = normalized_snapshot
+                changed = True
+
+            normalized_member_inviter_ids: dict[str, int] = {}
+            for member_id, inviter_id in value["member_inviter_ids"].items():
+                try:
+                    normalized_member_inviter_ids[str(member_id)] = int(inviter_id)
+                except (TypeError, ValueError):
+                    changed = True
+            if normalized_member_inviter_ids != value["member_inviter_ids"]:
+                value["member_inviter_ids"] = normalized_member_inviter_ids
+                changed = True
+
+        return changed
+
     def get_invite_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.invite_data:
-            self.invite_data[key] = {}
+            self.invite_data[key] = self.default_invite_store()
+            self.save_invites()
+        elif not isinstance(self.invite_data[key], dict) or "counts" not in self.invite_data[key]:
+            self._migrate_invite_data()
             self.save_invites()
         return self.invite_data[key]
 
@@ -136,7 +208,12 @@ class YishiBot(commands.Bot):
         save_json(GACHA_FILE, self.gacha_data)
 
     def get_invite_count(self, guild_id: int, user_id: int) -> int:
-        return int(self.get_invite_store(guild_id).get(str(user_id), 0))
+        counts = self.get_invite_store(guild_id)["counts"]
+        return int(counts.get(str(user_id), 0))
+
+    def get_member_inviter_id(self, guild_id: int, member_id: int) -> int | None:
+        inviter_id = self.get_invite_store(guild_id)["member_inviter_ids"].get(str(member_id))
+        return int(inviter_id) if inviter_id is not None else None
 
     def get_gacha_inventory(self, user_id: int) -> dict[str, int]:
         key = str(user_id)
@@ -756,15 +833,32 @@ class YishiBot(commands.Bot):
         self.save_config()
 
     async def cache_invites(self, guild: discord.Guild) -> None:
+        store = self.get_invite_store(guild.id)
+        saved_snapshot = {
+            str(code): int(uses)
+            for code, uses in store.get("invite_snapshot", {}).items()
+        }
         try:
             invites = await guild.invites()
         except discord.Forbidden:
-            self.invite_cache[guild.id] = {}
+            self.invite_cache[guild.id] = saved_snapshot
             return
-        self.invite_cache[guild.id] = {invite.code: invite.uses or 0 for invite in invites}
+
+        current_snapshot = {invite.code: invite.uses or 0 for invite in invites}
+        self.invite_cache[guild.id] = current_snapshot
+        if current_snapshot != saved_snapshot:
+            store["invite_snapshot"] = current_snapshot
+            self.save_invites()
 
     async def track_member_invite(self, member: discord.Member) -> discord.Member | None:
-        before = self.invite_cache.get(member.guild.id, {})
+        store = self.get_invite_store(member.guild.id)
+        before = self.invite_cache.get(
+            member.guild.id,
+            {
+                str(code): int(uses)
+                for code, uses in store.get("invite_snapshot", {}).items()
+            },
+        )
         try:
             invites = await member.guild.invites()
         except discord.Forbidden:
@@ -780,12 +874,15 @@ class YishiBot(commands.Bot):
                 break
 
         self.invite_cache[member.guild.id] = after
+        store["invite_snapshot"] = after
         if inviter is None:
+            self.save_invites()
             return None
 
-        store = self.get_invite_store(member.guild.id)
         key = str(inviter.id)
-        store[key] = int(store.get(key, 0)) + 1
+        counts = store["counts"]
+        counts[key] = int(counts.get(key, 0)) + 1
+        store["member_inviter_ids"][str(member.id)] = inviter.id
         self.save_invites()
         return member.guild.get_member(inviter.id)
 
