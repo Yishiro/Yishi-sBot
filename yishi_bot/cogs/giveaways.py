@@ -26,7 +26,7 @@ from yishi_bot.constants import (
     WELCOME_CHECKLIST,
 )
 from yishi_bot.helpers import can_moderate, parse_duration, split_long_message
-from yishi_bot.views import AnnouncementModal, TicketPanelView
+from yishi_bot.views import AnnouncementModal, GiveawayView, TicketPanelView
 
 if TYPE_CHECKING:
     from yishi_bot.core import YishiBot
