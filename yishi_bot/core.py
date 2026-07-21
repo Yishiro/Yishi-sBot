@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import random
+import traceback
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -64,6 +65,7 @@ class YishiBot(commands.Bot):
         self.pending_gacha_spins: set[tuple[int, int]] = set()
         self.sync_done = False
         self.synced_guild_ids: set[int] = set()
+        self.tree.on_error = self.on_app_command_error
 
     async def setup_hook(self) -> None:
         self.add_view(TicketPanelView(self))
@@ -78,6 +80,54 @@ class YishiBot(commands.Bot):
         await self.add_cog(TicketsCog(self))
         await self.add_cog(GiveawaysCog(self))
         await self.add_cog(ConfigurationCog(self))
+
+    async def on_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        original_error = getattr(error, "original", error)
+        command_name = interaction.command.qualified_name if interaction.command is not None else "inconnue"
+
+        if isinstance(error, app_commands.CommandNotFound):
+            message = (
+                "Cette commande n'existe plus ou n'est pas encore synchronisée. "
+                "Réessaie dans quelques instants."
+            )
+        else:
+            message = (
+                "La commande a rencontré une erreur interne. "
+                "Le problème a été journalisé."
+            )
+
+        if interaction.guild is not None:
+            details = "".join(
+                traceback.format_exception(
+                    type(original_error),
+                    original_error,
+                    original_error.__traceback__,
+                )
+            )[:3500]
+            await self.log_event(
+                interaction.guild,
+                "Erreur slash command",
+                f"Une erreur est survenue sur `/{command_name}`.",
+                discord.Color.red(),
+                thumbnail_url=interaction.user.display_avatar.url if interaction.user else None,
+                fields=[
+                    ("Utilisateur", getattr(interaction.user, "mention", "Inconnu"), True),
+                    ("Salon", getattr(interaction.channel, "mention", "Inconnu"), True),
+                    ("Détail", f"```py\n{details}\n```", False),
+                ],
+            )
+
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except discord.HTTPException:
+            pass
 
     def get_guild_config(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
