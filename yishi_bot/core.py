@@ -11,23 +11,25 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from storage import (
+from yishi_bot.storage import (
     CONFIG_FILE,
     GACHA_FILE,
     GIVEAWAYS_FILE,
     INVITES_FILE,
+    SALES_FILE,
     TICKETS_FILE,
     WARNINGS_FILE,
     load_json,
     save_json,
 )
-from tickets import TICKET_TYPES, build_custom_ticket_panel_embed, build_ticket_panel_embed, slugify_name
+from yishi_bot.ticketing import TICKET_TYPES, build_custom_ticket_panel_embed, build_ticket_panel_embed, slugify_name
 from yishi_bot.cogs.configuration import ConfigurationCog
 from yishi_bot.cogs.events import EventsCog
 from yishi_bot.cogs.gacha import GachaCog
 from yishi_bot.cogs.general import GeneralCog
 from yishi_bot.cogs.giveaways import GiveawaysCog
 from yishi_bot.cogs.moderation import ModerationCog
+from yishi_bot.cogs.sales import SalesCog
 from yishi_bot.cogs.tickets import TicketsCog
 from yishi_bot.constants import *
 from yishi_bot.helpers import (
@@ -39,7 +41,7 @@ from yishi_bot.helpers import (
     parse_duration,
     split_long_message,
 )
-from yishi_bot.views import GiveawayView, TicketArchiveView, TicketCloseView, TicketPanelView
+from yishi_bot.views import GiveawayView, SaleListingView, TicketArchiveView, TicketCloseView, TicketPanelView
 
 class YishiBot(commands.Bot):
     def __init__(self) -> None:
@@ -54,6 +56,7 @@ class YishiBot(commands.Bot):
         self.invite_data = load_json(INVITES_FILE, {})
         self.giveaway_data = load_json(GIVEAWAYS_FILE, {})
         self.gacha_data = load_json(GACHA_FILE, default_gacha_store())
+        self.sale_data = load_json(SALES_FILE, {})
         if self._migrate_invite_data():
             self.save_invites()
         if merge_missing_defaults(self.gacha_data, default_gacha_store()):
@@ -72,11 +75,13 @@ class YishiBot(commands.Bot):
         self.add_view(TicketCloseView(self))
         self.add_view(TicketArchiveView(self))
         self.add_view(GiveawayView(self))
+        self.add_view(SaleListingView(self))
 
         await self.add_cog(EventsCog(self))
         await self.add_cog(GeneralCog(self))
         await self.add_cog(GachaCog(self))
         await self.add_cog(ModerationCog(self))
+        await self.add_cog(SalesCog(self))
         await self.add_cog(TicketsCog(self))
         await self.add_cog(GiveawaysCog(self))
         await self.add_cog(ConfigurationCog(self))
@@ -239,6 +244,13 @@ class YishiBot(commands.Bot):
             self.save_giveaways()
         return self.giveaway_data[key]
 
+    def get_sale_store(self, guild_id: int) -> dict[str, Any]:
+        key = str(guild_id)
+        if key not in self.sale_data:
+            self.sale_data[key] = {"messages": {}, "channels": {}}
+            self.save_sales()
+        return self.sale_data[key]
+
     def save_config(self) -> None:
         save_json(CONFIG_FILE, self.config_data)
 
@@ -256,6 +268,9 @@ class YishiBot(commands.Bot):
 
     def save_gacha(self) -> None:
         save_json(GACHA_FILE, self.gacha_data)
+
+    def save_sales(self) -> None:
+        save_json(SALES_FILE, self.sale_data)
 
     def get_invite_count(self, guild_id: int, user_id: int) -> int:
         counts = self.get_invite_store(guild_id)["counts"]
@@ -392,6 +407,16 @@ class YishiBot(commands.Bot):
         channel = guild.get_channel(config["gacha_logs_channel_id"]) if config["gacha_logs_channel_id"] else None
         return channel if isinstance(channel, discord.TextChannel) else None
 
+    def get_sales_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["sales_channel_id"]) if config["sales_channel_id"] else None
+        return channel if isinstance(channel, discord.TextChannel) else None
+
+    def get_sales_category(self, guild: discord.Guild) -> discord.CategoryChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["sales_category_id"]) if config["sales_category_id"] else None
+        return channel if isinstance(channel, discord.CategoryChannel) else None
+
     async def log_event(
         self,
         guild: discord.Guild,
@@ -459,6 +484,271 @@ class YishiBot(commands.Bot):
 
     async def configure_staff_only_channel(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
         await self.configure_logs_channel_permissions(guild, channel)
+
+    def build_sale_embed(self, sale: dict[str, Any], *, reserved: bool = False) -> discord.Embed:
+        color = discord.Color.orange() if reserved else discord.Color.blurple()
+        status_text = "Réservée" if reserved else "Disponible"
+        embed = discord.Embed(
+            title="🛍️ Vente en cours",
+            description="Clique sur **Acheter** si tu veux ouvrir un salon privé avec le vendeur.",
+            color=color,
+        )
+        embed.add_field(name="Catégorie", value=sale["category"], inline=True)
+        embed.add_field(name="Produits", value=sale["product"], inline=True)
+        embed.add_field(name="Prix", value=sale["price"], inline=True)
+        embed.add_field(name="Description", value=sale["description"], inline=False)
+        embed.add_field(name="Statut", value=status_text, inline=True)
+        embed.add_field(name="Vendeur", value=f"<@{sale['seller_id']}>", inline=True)
+        if sale.get("buyer_id"):
+            embed.add_field(name="Acheteur", value=f"<@{sale['buyer_id']}>", inline=True)
+        embed.set_footer(text="Yishi's Shop • Vente membre")
+        return embed
+
+    async def ensure_sales_config(self, guild: discord.Guild) -> tuple[discord.TextChannel, discord.CategoryChannel]:
+        config = self.get_guild_config(guild.id)
+        sales_channel = self.get_sales_channel(guild)
+        if sales_channel is None:
+            sales_channel = discord.utils.get(guild.text_channels, name=AUTO_SALES_CHANNEL_NAME)
+            if sales_channel is None:
+                sales_channel = await guild.create_text_channel(
+                    AUTO_SALES_CHANNEL_NAME,
+                    reason="Auto configuration ventes",
+                )
+            config["sales_channel_id"] = sales_channel.id
+
+        sales_category = self.get_sales_category(guild)
+        if sales_category is None:
+            sales_category = discord.utils.get(guild.categories, name=AUTO_SALES_CATEGORY_NAME)
+            if sales_category is None:
+                sales_category = await guild.create_category(
+                    AUTO_SALES_CATEGORY_NAME,
+                    reason="Auto configuration ventes",
+                )
+            config["sales_category_id"] = sales_category.id
+
+        self.save_config()
+        return sales_channel, sales_category
+
+    async def create_sale_listing(
+        self,
+        interaction: discord.Interaction,
+        category: str,
+        product: str,
+        price: str,
+        description: str,
+    ) -> None:
+        guild = interaction.guild
+        seller = interaction.user
+        if guild is None or not isinstance(seller, discord.Member):
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        sales_channel, _ = await self.ensure_sales_config(guild)
+        await interaction.response.defer(ephemeral=True)
+
+        sale = {
+            "seller_id": seller.id,
+            "category": category,
+            "product": product,
+            "price": price,
+            "description": description,
+            "status": "available",
+            "buyer_id": None,
+            "sale_channel_id": None,
+            "created_at": discord.utils.utcnow().isoformat(),
+        }
+
+        message = await sales_channel.send(embed=self.build_sale_embed(sale), view=SaleListingView(self))
+        store = self.get_sale_store(guild.id)
+        store["messages"][str(message.id)] = sale
+        self.save_sales()
+
+        await self.log_event(
+            guild,
+            "Nouvelle vente",
+            f"{seller.mention} a créé une vente pour **{product}**.",
+            discord.Color.blurple(),
+            thumbnail_url=seller.display_avatar.url,
+            fields=[
+                ("Salon", sales_channel.mention, True),
+                ("Prix", price, True),
+                ("Catégorie", category, True),
+            ],
+        )
+        await interaction.followup.send(
+            f"Ta vente a été envoyée dans {sales_channel.mention}.",
+            ephemeral=True,
+        )
+
+    async def buy_sale(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        message = interaction.message
+        buyer = interaction.user
+        if guild is None or message is None or not isinstance(buyer, discord.Member):
+            await interaction.response.send_message("Impossible d'acheter cette vente ici.", ephemeral=True)
+            return
+
+        store = self.get_sale_store(guild.id)
+        sale = store["messages"].get(str(message.id))
+        if sale is None:
+            await interaction.response.send_message("Cette vente n'existe plus.", ephemeral=True)
+            return
+        if sale.get("status") != "available":
+            await interaction.response.send_message("Cette vente est déjà prise.", ephemeral=True)
+            return
+        if sale["seller_id"] == buyer.id:
+            await interaction.response.send_message("Tu ne peux pas acheter ta propre vente.", ephemeral=True)
+            return
+
+        config = self.get_guild_config(guild.id)
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        sales_category = self.get_sales_category(guild)
+        seller = guild.get_member(int(sale["seller_id"]))
+        if seller is None:
+            await interaction.response.send_message("Le vendeur n'est plus disponible sur le serveur.", ephemeral=True)
+            return
+        if sales_category is None:
+            _, sales_category = await self.ensure_sales_config(guild)
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            buyer: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+            seller: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+        }
+        if staff_role is not None:
+            overwrites[staff_role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_channels=True,
+                manage_messages=True,
+            )
+        if guild.owner is not None:
+            overwrites[guild.owner] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_channels=True,
+                manage_messages=True,
+            )
+
+        await interaction.response.defer(ephemeral=True)
+        channel_name = slugify_name(f"vente-{sale['product']}-{buyer.display_name}")[:90]
+        sale_channel = await guild.create_text_channel(
+            channel_name,
+            category=sales_category,
+            overwrites=overwrites,
+            reason=f"Vente ouverte par {buyer}",
+        )
+
+        sale["status"] = "reserved"
+        sale["buyer_id"] = buyer.id
+        sale["sale_channel_id"] = sale_channel.id
+        store["channels"][str(sale_channel.id)] = str(message.id)
+        self.save_sales()
+
+        reserved_embed = self.build_sale_embed(sale, reserved=True)
+        await message.edit(embed=reserved_embed, view=None)
+
+        ticket_embed = discord.Embed(
+            title="🧾 Vente ouverte",
+            description=(
+                "Ce salon privé a été créé pour finaliser la transaction.\n"
+                "Le staff pourra clôturer la vente une fois terminée."
+            ),
+            color=discord.Color.green(),
+        )
+        ticket_embed.add_field(name="Vendeur", value=seller.mention, inline=True)
+        ticket_embed.add_field(name="Acheteur", value=buyer.mention, inline=True)
+        ticket_embed.add_field(name="Prix", value=sale["price"], inline=True)
+        ticket_embed.add_field(name="Produit", value=sale["product"], inline=False)
+        ticket_embed.add_field(name="Description", value=sale["description"], inline=False)
+        await sale_channel.send(embed=ticket_embed)
+
+        await self.log_event(
+            guild,
+            "Vente réservée",
+            f"{buyer.mention} a réservé la vente **{sale['product']}**.",
+            discord.Color.orange(),
+            thumbnail_url=buyer.display_avatar.url,
+            fields=[
+                ("Salon privé", sale_channel.mention, True),
+                ("Vendeur", seller.mention, True),
+            ],
+        )
+        await interaction.followup.send(
+            f"Vente réservée, le salon privé a été créé : {sale_channel.mention}",
+            ephemeral=True,
+        )
+
+    async def close_sale_channel(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        channel = interaction.channel
+        member = interaction.user
+        if guild is None or channel is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Impossible de fermer cette vente.", ephemeral=True)
+            return
+        if not self.is_staff_member(member):
+            await interaction.response.send_message("Seul le staff peut fermer une vente.", ephemeral=True)
+            return
+
+        store = self.get_sale_store(guild.id)
+        message_id = store["channels"].get(str(channel.id))
+        if message_id is None:
+            await interaction.response.send_message("Ce salon n'est pas une vente gérée par le bot.", ephemeral=True)
+            return
+
+        sale = store["messages"].get(message_id)
+        if sale is None:
+            store["channels"].pop(str(channel.id), None)
+            self.save_sales()
+            await interaction.response.send_message("Cette vente n'existe plus dans les données.", ephemeral=True)
+            return
+
+        sales_channel = self.get_sales_channel(guild)
+        if sales_channel is not None:
+            try:
+                listing_message = await sales_channel.fetch_message(int(message_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                listing_message = None
+            if listing_message is not None:
+                try:
+                    await listing_message.delete()
+                except discord.HTTPException:
+                    pass
+
+        sale["status"] = "closed"
+        sale["closed_by"] = member.id
+        sale["closed_at"] = discord.utils.utcnow().isoformat()
+        store["channels"].pop(str(channel.id), None)
+        self.save_sales()
+
+        await interaction.response.send_message("Vente clôturée, suppression du salon en cours...", ephemeral=True)
+        await self.log_event(
+            guild,
+            "Vente clôturée",
+            f"{member.mention} a clôturé la vente **{sale['product']}**.",
+            discord.Color.red(),
+            thumbnail_url=member.display_avatar.url,
+            fields=[
+                ("Acheteur", f"<@{sale['buyer_id']}>" if sale.get("buyer_id") else "Aucun", True),
+                ("Vendeur", f"<@{sale['seller_id']}>", True),
+            ],
+        )
+        await asyncio.sleep(2)
+        await channel.delete(reason=f"Vente clôturée par {member}")
 
     def format_remaining_duration(self, end_at: int) -> str:
         remaining = end_at - int(discord.utils.utcnow().timestamp())
@@ -879,6 +1169,26 @@ class YishiBot(commands.Bot):
                 )
             config["gacha_logs_channel_id"] = gacha_logs_channel.id
         await self.configure_staff_only_channel(guild, gacha_logs_channel)
+
+        sales_channel = guild.get_channel(config["sales_channel_id"]) if config["sales_channel_id"] else None
+        if not isinstance(sales_channel, discord.TextChannel):
+            sales_channel = discord.utils.get(guild.text_channels, name=AUTO_SALES_CHANNEL_NAME)
+            if sales_channel is None:
+                sales_channel = await guild.create_text_channel(
+                    AUTO_SALES_CHANNEL_NAME,
+                    reason="Auto configuration ventes",
+                )
+            config["sales_channel_id"] = sales_channel.id
+
+        sales_category = guild.get_channel(config["sales_category_id"]) if config["sales_category_id"] else None
+        if not isinstance(sales_category, discord.CategoryChannel):
+            sales_category = discord.utils.get(guild.categories, name=AUTO_SALES_CATEGORY_NAME)
+            if sales_category is None:
+                sales_category = await guild.create_category(
+                    AUTO_SALES_CATEGORY_NAME,
+                    reason="Auto configuration ventes",
+                )
+            config["sales_category_id"] = sales_category.id
 
         self.save_config()
 

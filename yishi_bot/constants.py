@@ -13,6 +13,8 @@ AUTO_TRANSCRIPT_CHANNEL_NAME = "logs-transcript"
 AUTO_GACHA_SPIN_CHANNEL_NAME = "🎰・𝐆acha-spin"
 AUTO_GACHA_WINNER_CHANNEL_NAME = "🏆・𝐆acha-winner"
 AUTO_GACHA_LOGS_CHANNEL_NAME = "gacha-logs"
+AUTO_SALES_CHANNEL_NAME = "Enchères"
+AUTO_SALES_CATEGORY_NAME = "Ventes-en-cours"
 
 INVITE_ROLE_WEIGHTS = {
     "🥉 Inviteur Bronze • 5": 1.5,

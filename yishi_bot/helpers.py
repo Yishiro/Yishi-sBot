@@ -53,6 +53,8 @@ def default_config() -> dict[str, Any]:
         "gacha_spin_channel_id": None,
         "gacha_winner_channel_id": None,
         "gacha_logs_channel_id": None,
+        "sales_channel_id": None,
+        "sales_category_id": None,
         "rules_role_id": None,
         "rules_message_id": None,
         "rules_channel_id": None,

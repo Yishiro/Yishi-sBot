@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from threading import Thread
 
@@ -8,15 +10,15 @@ app = Flask("")
 
 
 @app.route("/")
-def home():
+def home() -> str:
     return "Le bot est en ligne !"
 
 
-def run():
+def run_web_server() -> None:
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 
-def keep_alive():
-    t = Thread(target=run, daemon=True)
-    t.start()
+def keep_alive() -> None:
+    thread = Thread(target=run_web_server, daemon=True)
+    thread.start()

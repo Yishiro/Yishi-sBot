@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from tickets import build_custom_ticket_panel_embed, build_ticket_panel_embed
+from yishi_bot.ticketing import build_custom_ticket_panel_embed, build_ticket_panel_embed
 from yishi_bot.constants import (
     AUTO_ARCHIVE_CATEGORY_NAME,
     AUTO_ARCHIVE_ROLE_NAME,

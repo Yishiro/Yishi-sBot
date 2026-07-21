@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from tickets import build_custom_ticket_panel_embed, build_ticket_panel_embed
+from yishi_bot.ticketing import build_custom_ticket_panel_embed, build_ticket_panel_embed
 from yishi_bot.constants import (
     AUTO_ARCHIVE_CATEGORY_NAME,
     AUTO_ARCHIVE_ROLE_NAME,
@@ -57,6 +57,11 @@ class GeneralCog(commands.Cog):
         embed.add_field(
             name="Tickets",
             value="/envoyer_panel_tickets\n/envoyer_panel_tickets_custom\n/add_membre_ticket\n/remove_membre_ticket",
+            inline=False,
+        )
+        embed.add_field(
+            name="Ventes",
+            value="/vente\n/vente_close\n/vente_setup",
             inline=False,
         )
         embed.add_field(

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
@@ -9,13 +11,18 @@ except ImportError:
     psycopg = None
 
 
-BASE_DIR = Path(__file__).parent
-CONFIG_FILE = BASE_DIR / "config.json"
-TICKETS_FILE = BASE_DIR / "tickets.json"
-WARNINGS_FILE = BASE_DIR / "warnings.json"
-INVITES_FILE = BASE_DIR / "invites.json"
-GIVEAWAYS_FILE = BASE_DIR / "giveaways.json"
-GACHA_FILE = BASE_DIR / "gacha.json"
+PACKAGE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_DIR.parent
+DATA_DIR = PROJECT_ROOT / "data"
+
+CONFIG_FILE = DATA_DIR / "config.json"
+TICKETS_FILE = DATA_DIR / "tickets.json"
+WARNINGS_FILE = DATA_DIR / "warnings.json"
+INVITES_FILE = DATA_DIR / "invites.json"
+GIVEAWAYS_FILE = DATA_DIR / "giveaways.json"
+GACHA_FILE = DATA_DIR / "gacha.json"
+SALES_FILE = DATA_DIR / "sales.json"
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 STATE_TABLE_NAME = "bot_state"
 _db_ready = False

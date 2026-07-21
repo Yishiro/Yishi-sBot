@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from tickets import TICKET_TYPES
+from yishi_bot.ticketing import TICKET_TYPES
 
 if TYPE_CHECKING:
     from yishi_bot.core import YishiBot
@@ -134,6 +134,24 @@ class GiveawayView(discord.ui.View):
         self.add_item(GiveawayParticipantsButton(bot))
         self.add_item(GiveawayChanceButton(bot))
         self.add_item(GiveawayRemainingTimeButton(bot))
+
+class SaleBuyButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            label="Acheter",
+            style=discord.ButtonStyle.success,
+            emoji="🛒",
+            custom_id="sale_buy_button",
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.buy_sale(interaction)
+
+class SaleListingView(discord.ui.View):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(timeout=None)
+        self.add_item(SaleBuyButton(bot))
 
 class AnnouncementModal(discord.ui.Modal, title="Création annonce"):
     titre = discord.ui.TextInput(label="Titre", max_length=120, required=True, placeholder="Titre de l'annonce")
