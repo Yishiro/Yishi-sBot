@@ -20,5 +20,11 @@
 - `yishi_bot/cogs/configuration.py` : rôles, salons, catégories et règlement.
 
 ## Fichiers de données
-- `storage.py` : lecture/écriture JSON.
-- `config.json`, `tickets.json` et les autres JSON : persistance locale.
+- `storage.py` : couche de persistance. Utilise Postgres si `DATABASE_URL` est défini, sinon JSON local.
+- `config.json`, `tickets.json` et les autres JSON : fallback local et source de migration initiale vers Postgres.
+
+## Persistance recommandée sur Render
+- Créer une base `Render Postgres`.
+- Ajouter `DATABASE_URL` dans les variables d'environnement du service.
+- Au premier démarrage avec `DATABASE_URL`, le bot migre automatiquement les états déjà présents dans les JSON vers la table `bot_state`.
+- Une fois Postgres activé, l'état du bot ne dépend plus du filesystem éphémère de Render.
