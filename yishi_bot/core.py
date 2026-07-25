@@ -515,6 +515,8 @@ class YishiBot(commands.Bot):
                     reason="Auto configuration ventes",
                 )
             config["sales_channel_id"] = sales_channel.id
+        elif sales_channel.name != AUTO_SALES_CHANNEL_NAME:
+            await sales_channel.edit(name=AUTO_SALES_CHANNEL_NAME, reason="Mise à jour configuration ventes")
 
         sales_category = self.get_sales_category(guild)
         if sales_category is None:

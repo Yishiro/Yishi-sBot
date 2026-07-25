@@ -153,6 +153,46 @@ class SaleListingView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(SaleBuyButton(bot))
 
+class SaleCreateModal(discord.ui.Modal, title="Création vente"):
+    categorie = discord.ui.TextInput(
+        label="Catégorie",
+        max_length=100,
+        required=True,
+        placeholder="Exemple : Compte, Skin, Fruit, Service...",
+    )
+    produits = discord.ui.TextInput(
+        label="Produits",
+        max_length=120,
+        required=True,
+        placeholder="Nom du produit ou de l'objet vendu",
+    )
+    prix = discord.ui.TextInput(
+        label="Prix",
+        max_length=60,
+        required=True,
+        placeholder="Exemple : 5€ / 1200 Robux / 10€ négociable",
+    )
+    description = discord.ui.TextInput(
+        label="Description",
+        style=discord.TextStyle.paragraph,
+        max_length=1000,
+        required=True,
+        placeholder="Décris clairement ce que tu vends, les infos utiles, l'état, etc.",
+    )
+
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.bot.create_sale_listing(
+            interaction,
+            self.categorie.value,
+            self.produits.value,
+            self.prix.value,
+            self.description.value,
+        )
+
 class AnnouncementModal(discord.ui.Modal, title="Création annonce"):
     titre = discord.ui.TextInput(label="Titre", max_length=120, required=True, placeholder="Titre de l'annonce")
     contenu = discord.ui.TextInput(

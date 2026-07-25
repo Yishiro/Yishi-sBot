@@ -6,6 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from yishi_bot.views import SaleCreateModal
+
 if TYPE_CHECKING:
     from yishi_bot.core import YishiBot
 
@@ -14,22 +16,9 @@ class SalesCog(commands.Cog):
     def __init__(self, bot: "YishiBot") -> None:
         self.bot = bot
 
-    @app_commands.command(name="vente", description="Crée une annonce de vente avec bouton d'achat")
-    @app_commands.describe(
-        categorie="Catégorie du produit",
-        produits="Produit ou objet mis en vente",
-        prix="Prix demandé",
-        description="Description de la vente",
-    )
-    async def vente(
-        self,
-        interaction: discord.Interaction,
-        categorie: str,
-        produits: str,
-        prix: str,
-        description: str,
-    ) -> None:
-        await self.bot.create_sale_listing(interaction, categorie, produits, prix, description)
+    @app_commands.command(name="vente", description="Ouvre une fenêtre pour créer une annonce de vente")
+    async def vente(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(SaleCreateModal(self.bot))
 
     @app_commands.command(name="vente_close", description="Ferme un salon de vente et retire l'annonce")
     async def vente_close(self, interaction: discord.Interaction) -> None:
