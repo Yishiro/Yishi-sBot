@@ -636,17 +636,17 @@ class YishiBot(commands.Bot):
         status_map = {
             "pending": ("En attente de validation", discord.Color.orange()),
             "available": ("Disponible", discord.Color.blurple()),
-            "reserved": ("R?serv?e", discord.Color.orange()),
-            "rejected": ("Refus?e", discord.Color.red()),
-            "closed": ("Cl?tur?e", discord.Color.dark_grey()),
+            "reserved": ("Réservée", discord.Color.orange()),
+            "rejected": ("Refusée", discord.Color.red()),
+            "closed": ("Clôturée", discord.Color.dark_grey()),
         }
         status_text, color = status_map.get(status, ("Disponible", discord.Color.blurple()))
         embed = discord.Embed(
-            title="??? Vente en cours",
-            description="Clique sur **Acheter** si tu veux ouvrir un salon priv? avec le vendeur.",
+            title="💸 Vente en cours",
+            description="Clique sur **Acheter** si tu veux ouvrir un salon privé avec le vendeur.",
             color=color,
         )
-        embed.add_field(name="Cat?gorie", value=sale["category"], inline=True)
+        embed.add_field(name="Catégorie", value=sale["category"], inline=True)
         embed.add_field(name="Produits", value=sale["product"], inline=True)
         embed.add_field(name="Prix", value=sale["price"], inline=True)
         embed.add_field(name="Description", value=sale["description"], inline=False)
@@ -654,7 +654,7 @@ class YishiBot(commands.Bot):
         embed.add_field(name="Vendeur", value=f"<@{sale['seller_id']}>", inline=True)
         if sale.get("buyer_id"):
             embed.add_field(name="Acheteur", value=f"<@{sale['buyer_id']}>", inline=True)
-        embed.set_footer(text="Yishi's Shop ? Vente membre")
+        embed.set_footer(text="Yishi's Shop • Vente membre")
         return embed
 
     def build_sale_review_embed(self, sale: dict[str, Any]) -> discord.Embed:
@@ -664,7 +664,7 @@ class YishiBot(commands.Bot):
             color=discord.Color.gold(),
         )
         embed.add_field(name="Vendeur", value=f"<@{sale['seller_id']}>", inline=True)
-        embed.add_field(name="Cat?gorie", value=sale["category"], inline=True)
+        embed.add_field(name="Catégorie", value=sale["category"], inline=True)
         embed.add_field(name="Prix", value=sale["price"], inline=True)
         embed.add_field(name="Produits", value=sale["product"], inline=False)
         embed.add_field(name="Description", value=sale["description"], inline=False)
@@ -749,7 +749,7 @@ class YishiBot(commands.Bot):
             fields=[
                 ("Salon staff", review_channel.mention, True),
                 ("Prix", price, True),
-                ("Cat?gorie", category, True),
+                ("Catégorie", category, True),
             ],
         )
         await interaction.followup.send(
@@ -987,8 +987,9 @@ class YishiBot(commands.Bot):
         store = self.get_sale_store(guild.id)
         channel_state = store["channels"].get(str(channel.id))
         if channel_state is None:
-            await interaction.response.send_message("Ce salon n'est pas une vente gérée par le bot.", ephemeral=True)
+            await interaction.response.send_message("Ce salon n\'est pas une vente g?r?e par le bot.", ephemeral=True)
             return
+        message_id = channel_state.get("message_id") if isinstance(channel_state, dict) else channel_state
 
         sale = store["messages"].get(str(message_id))
         if sale is None:
