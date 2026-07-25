@@ -153,6 +153,38 @@ class SaleListingView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(SaleBuyButton(bot))
 
+class SaleApproveButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            label="Accepter",
+            style=discord.ButtonStyle.success,
+            emoji="✅",
+            custom_id="sale_approve_button",
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.approve_sale_listing(interaction)
+
+class SaleRejectButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            label="Refuser",
+            style=discord.ButtonStyle.danger,
+            emoji="❌",
+            custom_id="sale_reject_button",
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.reject_sale_listing(interaction)
+
+class SaleApprovalView(discord.ui.View):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(timeout=None)
+        self.add_item(SaleApproveButton(bot))
+        self.add_item(SaleRejectButton(bot))
+
 class SaleCreateModal(discord.ui.Modal, title="Création vente"):
     categorie = discord.ui.TextInput(
         label="Catégorie",

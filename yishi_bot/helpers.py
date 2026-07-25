@@ -55,6 +55,8 @@ def default_config() -> dict[str, Any]:
         "gacha_logs_channel_id": None,
         "sales_channel_id": None,
         "sales_category_id": None,
+        "sales_review_channel_id": None,
+        "promo_channel_id": None,
         "rules_role_id": None,
         "rules_message_id": None,
         "rules_channel_id": None,
@@ -91,6 +93,13 @@ def default_gacha_store() -> dict[str, Any]:
         "grant_history": [],
         "member_notes": {},
         "next_claim_number": 1,
+    }
+
+def default_promo_store() -> dict[str, Any]:
+    return {
+        "promotions": [],
+        "next_id": 1,
+        "last_auto_post_week": None,
     }
 
 def merge_missing_defaults(target: dict[str, Any], defaults: dict[str, Any]) -> bool:

@@ -31,10 +31,11 @@ class SalesCog(commands.Cog):
             await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
             return
 
-        sales_channel, sales_category = await self.bot.ensure_sales_config(interaction.guild)
+        sales_channel, sales_category, review_channel = await self.bot.ensure_sales_config(interaction.guild)
         await interaction.response.send_message(
             (
                 "Système de vente configuré.\n"
+                f"Salon validation staff : {review_channel.mention}\n"
                 f"Salon des annonces : {sales_channel.mention}\n"
                 f"Catégorie des ventes privées : **{sales_category.name}**"
             ),

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import random
 import traceback
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
@@ -16,6 +18,7 @@ from yishi_bot.storage import (
     GACHA_FILE,
     GIVEAWAYS_FILE,
     INVITES_FILE,
+    PROMOS_FILE,
     SALES_FILE,
     TICKETS_FILE,
     WARNINGS_FILE,
@@ -29,6 +32,7 @@ from yishi_bot.cogs.gacha import GachaCog
 from yishi_bot.cogs.general import GeneralCog
 from yishi_bot.cogs.giveaways import GiveawaysCog
 from yishi_bot.cogs.moderation import ModerationCog
+from yishi_bot.cogs.promotions import PromotionsCog
 from yishi_bot.cogs.sales import SalesCog
 from yishi_bot.cogs.tickets import TicketsCog
 from yishi_bot.constants import *
@@ -36,12 +40,13 @@ from yishi_bot.helpers import (
     can_moderate,
     default_config,
     default_gacha_store,
+    default_promo_store,
     get_member_giveaway_weight,
     merge_missing_defaults,
     parse_duration,
     split_long_message,
 )
-from yishi_bot.views import GiveawayView, SaleListingView, TicketArchiveView, TicketCloseView, TicketPanelView
+from yishi_bot.views import GiveawayView, SaleApprovalView, SaleListingView, TicketArchiveView, TicketCloseView, TicketPanelView
 
 class YishiBot(commands.Bot):
     def __init__(self) -> None:
@@ -57,6 +62,7 @@ class YishiBot(commands.Bot):
         self.giveaway_data = load_json(GIVEAWAYS_FILE, {})
         self.gacha_data = load_json(GACHA_FILE, default_gacha_store())
         self.sale_data = load_json(SALES_FILE, {})
+        self.promo_data = load_json(PROMOS_FILE, {})
         if self._migrate_invite_data():
             self.save_invites()
         if merge_missing_defaults(self.gacha_data, default_gacha_store()):
@@ -66,6 +72,8 @@ class YishiBot(commands.Bot):
         self.giveaway_tasks: dict[str, asyncio.Task] = {}
         self.pending_ticket_creations: set[tuple[int, int]] = set()
         self.pending_gacha_spins: set[tuple[int, int]] = set()
+        self.background_task: asyncio.Task | None = None
+        self.paris_tz = ZoneInfo("Europe/Paris")
         self.sync_done = False
         self.synced_guild_ids: set[int] = set()
         self.tree.on_error = self.on_app_command_error
@@ -76,15 +84,19 @@ class YishiBot(commands.Bot):
         self.add_view(TicketArchiveView(self))
         self.add_view(GiveawayView(self))
         self.add_view(SaleListingView(self))
+        self.add_view(SaleApprovalView(self))
 
         await self.add_cog(EventsCog(self))
         await self.add_cog(GeneralCog(self))
         await self.add_cog(GachaCog(self))
         await self.add_cog(ModerationCog(self))
+        await self.add_cog(PromotionsCog(self))
         await self.add_cog(SalesCog(self))
         await self.add_cog(TicketsCog(self))
         await self.add_cog(GiveawaysCog(self))
         await self.add_cog(ConfigurationCog(self))
+        if self.background_task is None:
+            self.background_task = asyncio.create_task(self.run_background_jobs())
 
     async def on_app_command_error(
         self,
@@ -133,6 +145,14 @@ class YishiBot(commands.Bot):
                 await interaction.response.send_message(message, ephemeral=True)
         except discord.HTTPException:
             pass
+
+    async def close(self) -> None:
+        if self.background_task is not None:
+            self.background_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.background_task
+            self.background_task = None
+        await super().close()
 
     def get_guild_config(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
@@ -247,9 +267,37 @@ class YishiBot(commands.Bot):
     def get_sale_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.sale_data:
-            self.sale_data[key] = {"messages": {}, "channels": {}}
+            self.sale_data[key] = {"messages": {}, "channels": {}, "reviews": {}}
             self.save_sales()
+        else:
+            store = self.sale_data[key]
+            changed = False
+            for field in ("messages", "channels", "reviews"):
+                if field not in store or not isinstance(store[field], dict):
+                    store[field] = {}
+                    changed = True
+            for channel_id, value in list(store["channels"].items()):
+                if isinstance(value, str):
+                    store["channels"][channel_id] = {
+                        "message_id": value,
+                        "last_activity_at": None,
+                        "recall_sent_at": None,
+                    }
+                    changed = True
+            if changed:
+                self.save_sales()
         return self.sale_data[key]
+
+    def get_promo_store(self, guild_id: int) -> dict[str, Any]:
+        key = str(guild_id)
+        if key not in self.promo_data:
+            self.promo_data[key] = default_promo_store()
+            self.save_promos()
+        else:
+            store = self.promo_data[key]
+            if merge_missing_defaults(store, default_promo_store()):
+                self.save_promos()
+        return self.promo_data[key]
 
     def save_config(self) -> None:
         save_json(CONFIG_FILE, self.config_data)
@@ -271,6 +319,9 @@ class YishiBot(commands.Bot):
 
     def save_sales(self) -> None:
         save_json(SALES_FILE, self.sale_data)
+
+    def save_promos(self) -> None:
+        save_json(PROMOS_FILE, self.promo_data)
 
     def get_invite_count(self, guild_id: int, user_id: int) -> int:
         counts = self.get_invite_store(guild_id)["counts"]
@@ -373,6 +424,75 @@ class YishiBot(commands.Bot):
                 break
         return expected
 
+    def utcnow(self) -> datetime:
+        return discord.utils.utcnow()
+
+    def iso_now(self) -> str:
+        return self.utcnow().isoformat()
+
+    def parse_iso_datetime(self, value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def mark_ticket_activity(self, guild_id: int, channel_id: int) -> None:
+        ticket = self.get_ticket_store(guild_id)["channels"].get(str(channel_id))
+        if ticket is None:
+            return
+        ticket["last_activity_at"] = self.iso_now()
+        ticket["recall_sent_at"] = None
+        self.save_tickets()
+
+    def mark_sale_activity(self, guild_id: int, channel_id: int) -> None:
+        store = self.get_sale_store(guild_id)
+        channel_state = store["channels"].get(str(channel_id))
+        if not isinstance(channel_state, dict):
+            return
+        channel_state["last_activity_at"] = self.iso_now()
+        channel_state["recall_sent_at"] = None
+        self.save_sales()
+
+    def track_managed_channel_activity(self, message: discord.Message) -> None:
+        if message.guild is None:
+            return
+        channel_id = message.channel.id
+        guild_id = message.guild.id
+        if str(channel_id) in self.get_ticket_store(guild_id)["channels"]:
+            self.mark_ticket_activity(guild_id, channel_id)
+            return
+        if str(channel_id) in self.get_sale_store(guild_id)["channels"]:
+            self.mark_sale_activity(guild_id, channel_id)
+
+    def get_promo_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["promo_channel_id"]) if config["promo_channel_id"] else None
+        return channel if isinstance(channel, discord.TextChannel) else None
+
+    def build_promo_embed(self, promo: dict[str, Any]) -> discord.Embed:
+        priority = int(promo.get("priority", 1))
+        palette = {
+            1: discord.Color.from_rgb(94, 129, 172),
+            2: discord.Color.from_rgb(46, 204, 113),
+            3: discord.Color.from_rgb(241, 196, 15),
+            4: discord.Color.from_rgb(230, 126, 34),
+            5: discord.Color.from_rgb(231, 76, 60),
+        }
+        color = palette.get(max(1, min(priority, 5)), discord.Color.blurple())
+        embed = discord.Embed(
+            title=f"Offer Of The Week #{promo['id']}",
+            description=promo["content"],
+            color=color,
+        )
+        embed.add_field(name="Promotion", value=promo["title"], inline=False)
+        embed.add_field(name="Priority", value=str(priority), inline=True)
+        embed.add_field(name="Status", value="Active" if promo.get("active", True) else "Disabled", inline=True)
+        embed.set_author(name="Yishi's Shop Weekly Promotion")
+        embed.set_footer(text="Limited weekly offer")
+        return embed
+
     def get_bot_member(self, guild: discord.Guild) -> discord.Member | None:
         if self.user is None:
             return None
@@ -412,10 +532,36 @@ class YishiBot(commands.Bot):
         channel = guild.get_channel(config["sales_channel_id"]) if config["sales_channel_id"] else None
         return channel if isinstance(channel, discord.TextChannel) else None
 
+    def get_sales_review_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config["sales_review_channel_id"]) if config["sales_review_channel_id"] else None
+        return channel if isinstance(channel, discord.TextChannel) else None
+
     def get_sales_category(self, guild: discord.Guild) -> discord.CategoryChannel | None:
         config = self.get_guild_config(guild.id)
         channel = guild.get_channel(config["sales_category_id"]) if config["sales_category_id"] else None
         return channel if isinstance(channel, discord.CategoryChannel) else None
+
+    async def ensure_sales_review_channel(self, guild: discord.Guild) -> discord.TextChannel:
+        config = self.get_guild_config(guild.id)
+        review_channel = self.get_sales_review_channel(guild)
+        if review_channel is None:
+            review_channel = discord.utils.get(guild.text_channels, name=AUTO_SALES_REVIEW_CHANNEL_NAME)
+            if review_channel is None:
+                review_channel = await guild.create_text_channel(
+                    AUTO_SALES_REVIEW_CHANNEL_NAME,
+                    reason="Auto configuration validation ventes",
+                )
+            config["sales_review_channel_id"] = review_channel.id
+        elif review_channel.name != AUTO_SALES_REVIEW_CHANNEL_NAME:
+            await review_channel.edit(
+                name=AUTO_SALES_REVIEW_CHANNEL_NAME,
+                reason="Mise à jour configuration validation ventes",
+            )
+
+        await self.configure_staff_only_channel(guild, review_channel)
+        self.save_config()
+        return review_channel
 
     async def log_event(
         self,
@@ -486,14 +632,21 @@ class YishiBot(commands.Bot):
         await self.configure_logs_channel_permissions(guild, channel)
 
     def build_sale_embed(self, sale: dict[str, Any], *, reserved: bool = False) -> discord.Embed:
-        color = discord.Color.orange() if reserved else discord.Color.blurple()
-        status_text = "Réservée" if reserved else "Disponible"
+        status = "reserved" if reserved else sale.get("status", "available")
+        status_map = {
+            "pending": ("En attente de validation", discord.Color.orange()),
+            "available": ("Disponible", discord.Color.blurple()),
+            "reserved": ("R?serv?e", discord.Color.orange()),
+            "rejected": ("Refus?e", discord.Color.red()),
+            "closed": ("Cl?tur?e", discord.Color.dark_grey()),
+        }
+        status_text, color = status_map.get(status, ("Disponible", discord.Color.blurple()))
         embed = discord.Embed(
-            title="🛍️ Vente en cours",
-            description="Clique sur **Acheter** si tu veux ouvrir un salon privé avec le vendeur.",
+            title="??? Vente en cours",
+            description="Clique sur **Acheter** si tu veux ouvrir un salon priv? avec le vendeur.",
             color=color,
         )
-        embed.add_field(name="Catégorie", value=sale["category"], inline=True)
+        embed.add_field(name="Cat?gorie", value=sale["category"], inline=True)
         embed.add_field(name="Produits", value=sale["product"], inline=True)
         embed.add_field(name="Prix", value=sale["price"], inline=True)
         embed.add_field(name="Description", value=sale["description"], inline=False)
@@ -501,10 +654,25 @@ class YishiBot(commands.Bot):
         embed.add_field(name="Vendeur", value=f"<@{sale['seller_id']}>", inline=True)
         if sale.get("buyer_id"):
             embed.add_field(name="Acheteur", value=f"<@{sale['buyer_id']}>", inline=True)
-        embed.set_footer(text="Yishi's Shop • Vente membre")
+        embed.set_footer(text="Yishi's Shop ? Vente membre")
         return embed
 
-    async def ensure_sales_config(self, guild: discord.Guild) -> tuple[discord.TextChannel, discord.CategoryChannel]:
+    def build_sale_review_embed(self, sale: dict[str, Any]) -> discord.Embed:
+        embed = discord.Embed(
+            title="Validation vente",
+            description="Le staff doit accepter ou refuser cette vente avant publication.",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Vendeur", value=f"<@{sale['seller_id']}>", inline=True)
+        embed.add_field(name="Cat?gorie", value=sale["category"], inline=True)
+        embed.add_field(name="Prix", value=sale["price"], inline=True)
+        embed.add_field(name="Produits", value=sale["product"], inline=False)
+        embed.add_field(name="Description", value=sale["description"], inline=False)
+        embed.add_field(name="Statut", value="En attente", inline=True)
+        embed.set_footer(text="Validation staff requise")
+        return embed
+
+    async def ensure_sales_config(self, guild: discord.Guild) -> tuple[discord.TextChannel, discord.CategoryChannel, discord.TextChannel]:
         config = self.get_guild_config(guild.id)
         sales_channel = self.get_sales_channel(guild)
         if sales_channel is None:
@@ -516,7 +684,7 @@ class YishiBot(commands.Bot):
                 )
             config["sales_channel_id"] = sales_channel.id
         elif sales_channel.name != AUTO_SALES_CHANNEL_NAME:
-            await sales_channel.edit(name=AUTO_SALES_CHANNEL_NAME, reason="Mise à jour configuration ventes")
+            await sales_channel.edit(name=AUTO_SALES_CHANNEL_NAME, reason="Mise ? jour configuration ventes")
 
         sales_category = self.get_sales_category(guild)
         if sales_category is None:
@@ -528,8 +696,9 @@ class YishiBot(commands.Bot):
                 )
             config["sales_category_id"] = sales_category.id
 
+        review_channel = await self.ensure_sales_review_channel(guild)
         self.save_config()
-        return sales_channel, sales_category
+        return sales_channel, sales_category, review_channel
 
     async def create_sale_listing(
         self,
@@ -545,7 +714,7 @@ class YishiBot(commands.Bot):
             await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
             return
 
-        sales_channel, _ = await self.ensure_sales_config(guild)
+        _, _, review_channel = await self.ensure_sales_config(guild)
         await interaction.response.defer(ephemeral=True)
 
         sale = {
@@ -554,33 +723,138 @@ class YishiBot(commands.Bot):
             "product": product,
             "price": price,
             "description": description,
-            "status": "available",
+            "status": "pending",
             "buyer_id": None,
             "sale_channel_id": None,
+            "review_message_id": None,
+            "public_message_id": None,
             "created_at": discord.utils.utcnow().isoformat(),
         }
 
-        message = await sales_channel.send(embed=self.build_sale_embed(sale), view=SaleListingView(self))
+        review_message = await review_channel.send(
+            embed=self.build_sale_review_embed(sale),
+            view=SaleApprovalView(self),
+        )
+        sale["review_message_id"] = review_message.id
         store = self.get_sale_store(guild.id)
-        store["messages"][str(message.id)] = sale
+        store["reviews"][str(review_message.id)] = sale
         self.save_sales()
 
         await self.log_event(
             guild,
-            "Nouvelle vente",
-            f"{seller.mention} a créé une vente pour **{product}**.",
-            discord.Color.blurple(),
+            "Nouvelle demande de vente",
+            f"{seller.mention} a soumis une vente pour validation : **{product}**.",
+            discord.Color.gold(),
             thumbnail_url=seller.display_avatar.url,
             fields=[
-                ("Salon", sales_channel.mention, True),
+                ("Salon staff", review_channel.mention, True),
                 ("Prix", price, True),
-                ("Catégorie", category, True),
+                ("Cat?gorie", category, True),
             ],
         )
         await interaction.followup.send(
-            f"Ta vente a été envoyée dans {sales_channel.mention}.",
+            f"Ta vente a ?t? envoy?e au staff pour validation dans {review_channel.mention}.",
             ephemeral=True,
         )
+
+    async def approve_sale_listing(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        review_message = interaction.message
+        member = interaction.user
+        if guild is None or review_message is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Impossible de valider cette vente.", ephemeral=True)
+            return
+        if not self.is_staff_member(member):
+            await interaction.response.send_message("Seul le staff peut valider une vente.", ephemeral=True)
+            return
+
+        store = self.get_sale_store(guild.id)
+        sale = store["reviews"].get(str(review_message.id))
+        if sale is None:
+            await interaction.response.send_message("Cette demande de vente n'existe plus.", ephemeral=True)
+            return
+        if sale.get("status") != "pending":
+            await interaction.response.send_message("Cette vente a d?j? ?t? trait?e.", ephemeral=True)
+            return
+
+        sales_channel, _, _ = await self.ensure_sales_config(guild)
+        await interaction.response.defer(ephemeral=True)
+
+        sale["status"] = "available"
+        public_message = await sales_channel.send(embed=self.build_sale_embed(sale), view=SaleListingView(self))
+        sale["public_message_id"] = public_message.id
+        store["messages"][str(public_message.id)] = sale
+        store["reviews"].pop(str(review_message.id), None)
+        self.save_sales()
+
+        approved_embed = self.build_sale_review_embed(sale)
+        approved_embed.color = discord.Color.green()
+        approved_embed.set_field_at(5, name="Statut", value=f"Accept?e par {member.mention}", inline=True)
+        await review_message.edit(embed=approved_embed, view=None)
+
+        seller = guild.get_member(int(sale["seller_id"]))
+        if seller is not None:
+            try:
+                await seller.send(f"Ta vente **{sale['product']}** a ?t? accept?e et publi?e dans {sales_channel.mention}.")
+            except discord.Forbidden:
+                pass
+
+        await self.log_event(
+            guild,
+            "Vente valid?e",
+            f"{member.mention} a valid? la vente **{sale['product']}**.",
+            discord.Color.green(),
+            thumbnail_url=member.display_avatar.url,
+            fields=[("Salon public", sales_channel.mention, True)],
+        )
+        await interaction.followup.send("Vente accept?e et publi?e.", ephemeral=True)
+
+    async def reject_sale_listing(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        review_message = interaction.message
+        member = interaction.user
+        if guild is None or review_message is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Impossible de refuser cette vente.", ephemeral=True)
+            return
+        if not self.is_staff_member(member):
+            await interaction.response.send_message("Seul le staff peut refuser une vente.", ephemeral=True)
+            return
+
+        store = self.get_sale_store(guild.id)
+        sale = store["reviews"].get(str(review_message.id))
+        if sale is None:
+            await interaction.response.send_message("Cette demande de vente n'existe plus.", ephemeral=True)
+            return
+        if sale.get("status") != "pending":
+            await interaction.response.send_message("Cette vente a d?j? ?t? trait?e.", ephemeral=True)
+            return
+
+        sale["status"] = "rejected"
+        sale["rejected_by"] = member.id
+        sale["rejected_at"] = discord.utils.utcnow().isoformat()
+        store["reviews"].pop(str(review_message.id), None)
+        self.save_sales()
+
+        rejected_embed = self.build_sale_review_embed(sale)
+        rejected_embed.color = discord.Color.red()
+        rejected_embed.set_field_at(5, name="Statut", value=f"Refus?e par {member.mention}", inline=True)
+        await review_message.edit(embed=rejected_embed, view=None)
+
+        seller = guild.get_member(int(sale["seller_id"]))
+        if seller is not None:
+            try:
+                await seller.send(f"Ta vente **{sale['product']}** a ?t? refus?e par le staff.")
+            except discord.Forbidden:
+                pass
+
+        await self.log_event(
+            guild,
+            "Vente refus?e",
+            f"{member.mention} a refus? la vente **{sale['product']}**.",
+            discord.Color.red(),
+            thumbnail_url=member.display_avatar.url,
+        )
+        await interaction.response.send_message("Vente refus?e.", ephemeral=True)
 
     async def buy_sale(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
@@ -610,7 +884,7 @@ class YishiBot(commands.Bot):
             await interaction.response.send_message("Le vendeur n'est plus disponible sur le serveur.", ephemeral=True)
             return
         if sales_category is None:
-            _, sales_category = await self.ensure_sales_config(guild)
+            _, sales_category, _ = await self.ensure_sales_config(guild)
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -658,7 +932,11 @@ class YishiBot(commands.Bot):
         sale["status"] = "reserved"
         sale["buyer_id"] = buyer.id
         sale["sale_channel_id"] = sale_channel.id
-        store["channels"][str(sale_channel.id)] = str(message.id)
+        store["channels"][str(sale_channel.id)] = {
+            "message_id": str(message.id),
+            "last_activity_at": self.iso_now(),
+            "recall_sent_at": None,
+        }
         self.save_sales()
 
         reserved_embed = self.build_sale_embed(sale, reserved=True)
@@ -707,12 +985,12 @@ class YishiBot(commands.Bot):
             return
 
         store = self.get_sale_store(guild.id)
-        message_id = store["channels"].get(str(channel.id))
-        if message_id is None:
+        channel_state = store["channels"].get(str(channel.id))
+        if channel_state is None:
             await interaction.response.send_message("Ce salon n'est pas une vente gérée par le bot.", ephemeral=True)
             return
 
-        sale = store["messages"].get(message_id)
+        sale = store["messages"].get(str(message_id))
         if sale is None:
             store["channels"].pop(str(channel.id), None)
             self.save_sales()
@@ -1069,6 +1347,149 @@ class YishiBot(commands.Bot):
         embed.set_footer(text="Les taux affichés correspondent aux chances réelles du spin.")
         return embed
 
+    def select_next_promo(self, guild_id: int) -> dict[str, Any] | None:
+        store = self.get_promo_store(guild_id)
+        active_promos = [promo for promo in store["promotions"] if promo.get("active", True)]
+        if not active_promos:
+            return None
+        return min(
+            active_promos,
+            key=lambda promo: (
+                -int(promo.get("priority", 1)),
+                int(promo.get("queue_position", promo["id"])),
+                promo.get("last_posted_at") or "",
+            ),
+        )
+
+    async def post_promo(self, guild: discord.Guild, promo: dict[str, Any], *, automatic: bool) -> discord.Message | None:
+        channel = self.get_promo_channel(guild)
+        if channel is None:
+            return None
+
+        embed = self.build_promo_embed(promo)
+        content = "-# Interested? Open a ticket to claim this weekly offer."
+        message = await channel.send(content=content, embed=embed)
+
+        promo["last_posted_at"] = self.iso_now()
+        max_queue = max(
+            (int(existing.get("queue_position", existing["id"])) for existing in self.get_promo_store(guild.id)["promotions"]),
+            default=0,
+        )
+        promo["queue_position"] = max_queue + 1
+        if automatic:
+            now_paris = self.utcnow().astimezone(self.paris_tz)
+            self.get_promo_store(guild.id)["last_auto_post_week"] = now_paris.strftime("%G-W%V")
+        self.save_promos()
+
+        await self.log_event(
+            guild,
+            "Promotion publiée",
+            f"La promotion **{promo['title']}** a été publiée.",
+            discord.Color.gold(),
+            fields=[
+                ("Salon", channel.mention, True),
+                ("Priorité", str(promo.get("priority", 1)), True),
+                ("Mode", "Automatique" if automatic else "Manuel", True),
+            ],
+        )
+        return message
+
+    async def process_weekly_promotions(self) -> None:
+        now_paris = self.utcnow().astimezone(self.paris_tz)
+        if now_paris.weekday() != 4 or now_paris.hour != 20:
+            return
+
+        current_week_key = now_paris.strftime("%G-W%V")
+        for guild in self.guilds:
+            store = self.get_promo_store(guild.id)
+            if store.get("last_auto_post_week") == current_week_key:
+                continue
+            promo = self.select_next_promo(guild.id)
+            if promo is None:
+                continue
+            try:
+                await self.post_promo(guild, promo, automatic=True)
+            except discord.HTTPException:
+                continue
+
+    async def process_ticket_recalls(self) -> None:
+        now = self.utcnow()
+        for guild in self.guilds:
+            config = self.get_guild_config(guild.id)
+            staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+            if staff_role is None:
+                continue
+
+            changed = False
+            store = self.get_ticket_store(guild.id)
+            for ticket in store["channels"].values():
+                if ticket.get("status") != "open":
+                    continue
+                channel = guild.get_channel(int(ticket["channel_id"]))
+                if not isinstance(channel, discord.TextChannel):
+                    continue
+                last_activity = self.parse_iso_datetime(ticket.get("last_activity_at")) or channel.created_at
+                recall_sent_at = self.parse_iso_datetime(ticket.get("recall_sent_at"))
+                if now - last_activity < timedelta(hours=TICKET_RECALL_HOURS):
+                    continue
+                if recall_sent_at is not None and recall_sent_at >= last_activity:
+                    continue
+                try:
+                    await channel.send(
+                        f"{staff_role.mention} rappel automatique : ce ticket est inactif depuis plus de {TICKET_RECALL_HOURS}h."
+                    )
+                except discord.HTTPException:
+                    continue
+                ticket["recall_sent_at"] = self.iso_now()
+                changed = True
+            if changed:
+                self.save_tickets()
+
+    async def process_sale_recalls(self) -> None:
+        now = self.utcnow()
+        for guild in self.guilds:
+            store = self.get_sale_store(guild.id)
+            changed = False
+            for channel_id, channel_state in store["channels"].items():
+                if not isinstance(channel_state, dict):
+                    continue
+                sale = store["messages"].get(str(channel_state.get("message_id")))
+                if sale is None or sale.get("status") != "reserved":
+                    continue
+                channel = guild.get_channel(int(channel_id))
+                if not isinstance(channel, discord.TextChannel):
+                    continue
+                last_activity = self.parse_iso_datetime(channel_state.get("last_activity_at")) or channel.created_at
+                recall_sent_at = self.parse_iso_datetime(channel_state.get("recall_sent_at"))
+                if now - last_activity < timedelta(hours=SALES_RECALL_HOURS):
+                    continue
+                if recall_sent_at is not None and recall_sent_at >= last_activity:
+                    continue
+                mentions = [f"<@{sale['seller_id']}>"]
+                if sale.get("buyer_id"):
+                    mentions.append(f"<@{sale['buyer_id']}>")
+                try:
+                    await channel.send(
+                        f"{' '.join(mentions)} rappel automatique : cette vente est inactive depuis plus de {SALES_RECALL_HOURS}h."
+                    )
+                except discord.HTTPException:
+                    continue
+                channel_state["recall_sent_at"] = self.iso_now()
+                changed = True
+            if changed:
+                self.save_sales()
+
+    async def run_background_jobs(self) -> None:
+        await self.wait_until_ready()
+        while not self.is_closed():
+            try:
+                await self.process_ticket_recalls()
+                await self.process_sale_recalls()
+                await self.process_weekly_promotions()
+            except Exception:
+                traceback.print_exc()
+            await asyncio.sleep(300)
+
     async def ensure_ticket_config(self, guild: discord.Guild) -> None:
         config = self.get_guild_config(guild.id)
 
@@ -1191,6 +1612,13 @@ class YishiBot(commands.Bot):
                     reason="Auto configuration ventes",
                 )
             config["sales_category_id"] = sales_category.id
+
+        promo_channel = guild.get_channel(config["promo_channel_id"]) if config["promo_channel_id"] else None
+        if not isinstance(promo_channel, discord.TextChannel):
+            fixed_channel = guild.get_channel(DEFAULT_PROMO_CHANNEL_ID)
+            if isinstance(fixed_channel, discord.TextChannel):
+                promo_channel = fixed_channel
+                config["promo_channel_id"] = fixed_channel.id
 
         self.save_config()
 
@@ -1364,6 +1792,8 @@ class YishiBot(commands.Bot):
                 "status": "open",
                 "type": ticket_type,
                 "number": number,
+                "last_activity_at": self.iso_now(),
+                "recall_sent_at": None,
             }
             self.save_tickets()
 
@@ -1614,6 +2044,8 @@ class YishiBot(commands.Bot):
 
         ticket["status"] = "open"
         ticket["reopened_by"] = user.id
+        ticket["last_activity_at"] = self.iso_now()
+        ticket["recall_sent_at"] = None
         self.save_tickets()
 
         embed = discord.Embed(

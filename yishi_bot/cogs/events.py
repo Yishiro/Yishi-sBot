@@ -204,6 +204,7 @@ class EventsCog(commands.Cog):
     async def on_message(self, message: discord.Message) -> None:
         if message.guild is None or message.author.bot or not isinstance(message.author, discord.Member):
             return
+        self.bot.track_managed_channel_activity(message)
         if self.bot.is_staff_member(message.author):
             return
         if LINK_PATTERN.search(message.content):
