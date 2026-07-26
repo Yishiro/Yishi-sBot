@@ -5,7 +5,7 @@ from typing import Any
 
 import discord
 
-from yishi_bot.constants import INVITE_ROLE_WEIGHTS
+from yishi_bot.constants import INVITE_ROLE_REQUIREMENTS, INVITE_ROLE_WEIGHTS
 
 def parse_duration(value: str) -> int | None:
     match = re.fullmatch(r"(\d+)([mhd])", value.lower().strip())
@@ -56,6 +56,7 @@ def default_config() -> dict[str, Any]:
         "sales_channel_id": None,
         "sales_category_id": None,
         "sales_review_channel_id": None,
+        "sales_info_message_id": None,
         "promo_channel_id": None,
         "rules_role_id": None,
         "rules_message_id": None,
@@ -85,6 +86,16 @@ def get_member_giveaway_weight(member: discord.Member) -> float:
     if member.premium_since is not None or discord.utils.get(member.roles, name="Server Booster"):
         weight += 1.0
     return weight
+
+def get_best_invite_role_name(invite_count: int) -> str | None:
+    eligible = [
+        role_name
+        for role_name, required in INVITE_ROLE_REQUIREMENTS.items()
+        if invite_count >= required
+    ]
+    if not eligible:
+        return None
+    return max(eligible, key=lambda role_name: INVITE_ROLE_REQUIREMENTS[role_name])
 
 def default_gacha_store() -> dict[str, Any]:
     return {

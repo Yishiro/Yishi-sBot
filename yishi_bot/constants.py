@@ -28,6 +28,13 @@ INVITE_ROLE_WEIGHTS = {
     "💎 Inviteur Diamond • 20": 3.0,
 }
 
+INVITE_ROLE_REQUIREMENTS = {
+    "🥉 Inviteur Bronze • 5": 5,
+    "🥈 Inviteur Silver • 10": 10,
+    "🥇 Inviteur Gold • 15": 15,
+    "💎 Inviteur Diamond • 20": 20,
+}
+
 WELCOME_CHECKLIST = (
     "• Lire les salons importants\n"
     "• Consulter la boutique disponible\n"

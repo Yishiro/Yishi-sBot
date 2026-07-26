@@ -41,6 +41,7 @@ from yishi_bot.helpers import (
     default_config,
     default_gacha_store,
     default_promo_store,
+    get_best_invite_role_name,
     get_member_giveaway_weight,
     merge_missing_defaults,
     parse_duration,
@@ -185,6 +186,8 @@ class YishiBot(commands.Bot):
             "counts": {},
             "invite_snapshot": {},
             "member_inviter_ids": {},
+            "role_baseline_counts": {},
+            "role_baseline_initialized_at": None,
         }
 
     def _migrate_invite_data(self) -> bool:
@@ -243,6 +246,16 @@ class YishiBot(commands.Bot):
                     changed = True
             if normalized_member_inviter_ids != value["member_inviter_ids"]:
                 value["member_inviter_ids"] = normalized_member_inviter_ids
+                changed = True
+
+            normalized_role_baselines: dict[str, int] = {}
+            for user_id, count in value.get("role_baseline_counts", {}).items():
+                try:
+                    normalized_role_baselines[str(user_id)] = int(count)
+                except (TypeError, ValueError):
+                    changed = True
+            if normalized_role_baselines != value.get("role_baseline_counts", {}):
+                value["role_baseline_counts"] = normalized_role_baselines
                 changed = True
 
         return changed
@@ -326,6 +339,26 @@ class YishiBot(commands.Bot):
     def get_invite_count(self, guild_id: int, user_id: int) -> int:
         counts = self.get_invite_store(guild_id)["counts"]
         return int(counts.get(str(user_id), 0))
+
+    def get_invite_role_count_from_now(self, guild_id: int, user_id: int) -> int:
+        store = self.get_invite_store(guild_id)
+        key = str(user_id)
+        total_count = int(store["counts"].get(key, 0))
+        baseline_count = int(store.get("role_baseline_counts", {}).get(key, 0))
+        return max(0, total_count - baseline_count)
+
+    def initialize_invite_role_baseline(self, guild_id: int) -> bool:
+        store = self.get_invite_store(guild_id)
+        if store.get("role_baseline_initialized_at"):
+            return False
+
+        counts = store.setdefault("counts", {})
+        baselines = store.setdefault("role_baseline_counts", {})
+        for user_id, count in counts.items():
+            baselines[str(user_id)] = int(count)
+        store["role_baseline_initialized_at"] = self.iso_now()
+        self.save_invites()
+        return True
 
     def get_member_inviter_id(self, guild_id: int, member_id: int) -> int | None:
         inviter_id = self.get_invite_store(guild_id)["member_inviter_ids"].get(str(member_id))
@@ -542,6 +575,81 @@ class YishiBot(commands.Bot):
         channel = guild.get_channel(config["sales_category_id"]) if config["sales_category_id"] else None
         return channel if isinstance(channel, discord.CategoryChannel) else None
 
+    def build_sales_rules_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="\U0001f4b8 Règlement des ventes membres",
+            description=(
+                "Respecte ces règles pour vendre et acheter en toute sécurité dans ce salon."
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.add_field(
+            name="Créer une vente",
+            value=(
+                "Utilise la commande `/vente` pour envoyer ton annonce au staff.\n"
+                "Une fois validée, elle sera publiée ici."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Acheter une vente",
+            value=(
+                "Clique sur le bouton **Acheter** sous une annonce.\n"
+                "Le bot créera automatiquement un salon privé entre vendeur et acheteur."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Interdiction des MP",
+            value=(
+                "Toute demande de passage en message privé pour finaliser une vente est interdite.\n"
+                "La transaction doit obligatoirement se faire dans le salon créé par le bot."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Middleman",
+            value=(
+                "Des MM sont disponibles si besoin pour sécuriser la transaction.\n"
+                "Le service de MM est gratuit : **0% de frais**."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Sécurité",
+            value=(
+                "Si quelqu'un te demande de sortir du ticket de vente, refuse et préviens le staff.\n"
+                "Ne finalise jamais une vente hors du salon privé de transaction."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Yishi's Shop • Ventes sécurisées")
+        return embed
+
+    async def ensure_sales_rules_message(self, guild: discord.Guild, sales_channel: discord.TextChannel) -> discord.Message | None:
+        config = self.get_guild_config(guild.id)
+        message_id = config.get("sales_info_message_id")
+        embed = self.build_sales_rules_embed()
+
+        existing_message: discord.Message | None = None
+        if message_id:
+            try:
+                existing_message = await sales_channel.fetch_message(int(message_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                existing_message = None
+
+        try:
+            if existing_message is not None:
+                await existing_message.edit(embed=embed, content=None)
+                return existing_message
+
+            info_message = await sales_channel.send(embed=embed)
+            config["sales_info_message_id"] = info_message.id
+            self.save_config()
+            return info_message
+        except discord.HTTPException:
+            return None
+
     async def ensure_sales_review_channel(self, guild: discord.Guild) -> discord.TextChannel:
         config = self.get_guild_config(guild.id)
         review_channel = self.get_sales_review_channel(guild)
@@ -753,7 +861,7 @@ class YishiBot(commands.Bot):
             ],
         )
         await interaction.followup.send(
-            f"Ta vente a ?t? envoy?e au staff pour validation dans {review_channel.mention}.",
+            f"Ta vente a été envoyée au staff pour validation dans {review_channel.mention}.",
             ephemeral=True,
         )
 
@@ -774,7 +882,7 @@ class YishiBot(commands.Bot):
             await interaction.response.send_message("Cette demande de vente n'existe plus.", ephemeral=True)
             return
         if sale.get("status") != "pending":
-            await interaction.response.send_message("Cette vente a d?j? ?t? trait?e.", ephemeral=True)
+            await interaction.response.send_message("Cette vente a déjà été traitée.", ephemeral=True)
             return
 
         sales_channel, _, _ = await self.ensure_sales_config(guild)
@@ -789,25 +897,25 @@ class YishiBot(commands.Bot):
 
         approved_embed = self.build_sale_review_embed(sale)
         approved_embed.color = discord.Color.green()
-        approved_embed.set_field_at(5, name="Statut", value=f"Accept?e par {member.mention}", inline=True)
+        approved_embed.set_field_at(5, name="Statut", value=f"Acceptée par {member.mention}", inline=True)
         await review_message.edit(embed=approved_embed, view=None)
 
         seller = guild.get_member(int(sale["seller_id"]))
         if seller is not None:
             try:
-                await seller.send(f"Ta vente **{sale['product']}** a ?t? accept?e et publi?e dans {sales_channel.mention}.")
+                await seller.send(f"Ta vente **{sale['product']}** a été acceptée et publiée dans {sales_channel.mention}.")
             except discord.Forbidden:
                 pass
 
         await self.log_event(
             guild,
-            "Vente valid?e",
-            f"{member.mention} a valid? la vente **{sale['product']}**.",
+            "Vente validée",
+            f"{member.mention} a validé la vente **{sale['product']}**.",
             discord.Color.green(),
             thumbnail_url=member.display_avatar.url,
             fields=[("Salon public", sales_channel.mention, True)],
         )
-        await interaction.followup.send("Vente accept?e et publi?e.", ephemeral=True)
+        await interaction.followup.send("Vente acceptée et publiée.", ephemeral=True)
 
     async def reject_sale_listing(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
@@ -826,7 +934,7 @@ class YishiBot(commands.Bot):
             await interaction.response.send_message("Cette demande de vente n'existe plus.", ephemeral=True)
             return
         if sale.get("status") != "pending":
-            await interaction.response.send_message("Cette vente a d?j? ?t? trait?e.", ephemeral=True)
+            await interaction.response.send_message("Cette vente a déjà été traitée.", ephemeral=True)
             return
 
         sale["status"] = "rejected"
@@ -837,24 +945,24 @@ class YishiBot(commands.Bot):
 
         rejected_embed = self.build_sale_review_embed(sale)
         rejected_embed.color = discord.Color.red()
-        rejected_embed.set_field_at(5, name="Statut", value=f"Refus?e par {member.mention}", inline=True)
+        rejected_embed.set_field_at(5, name="Statut", value=f"Refusée par {member.mention}", inline=True)
         await review_message.edit(embed=rejected_embed, view=None)
 
         seller = guild.get_member(int(sale["seller_id"]))
         if seller is not None:
             try:
-                await seller.send(f"Ta vente **{sale['product']}** a ?t? refus?e par le staff.")
+                await seller.send(f"Ta vente **{sale['product']}** a été refusée par le staff.")
             except discord.Forbidden:
                 pass
 
         await self.log_event(
             guild,
-            "Vente refus?e",
-            f"{member.mention} a refus? la vente **{sale['product']}**.",
+            "Vente refusée",
+            f"{member.mention} a refusé la vente **{sale['product']}**.",
             discord.Color.red(),
             thumbnail_url=member.display_avatar.url,
         )
-        await interaction.response.send_message("Vente refus?e.", ephemeral=True)
+        await interaction.response.send_message("Vente refusée.", ephemeral=True)
 
     async def buy_sale(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
@@ -987,7 +1095,7 @@ class YishiBot(commands.Bot):
         store = self.get_sale_store(guild.id)
         channel_state = store["channels"].get(str(channel.id))
         if channel_state is None:
-            await interaction.response.send_message("Ce salon n\'est pas une vente g?r?e par le bot.", ephemeral=True)
+            await interaction.response.send_message("Ce salon n\'est pas une vente gérée par le bot.", ephemeral=True)
             return
         message_id = channel_state.get("message_id") if isinstance(channel_state, dict) else channel_state
 
@@ -1641,6 +1749,39 @@ class YishiBot(commands.Bot):
             store["invite_snapshot"] = current_snapshot
             self.save_invites()
 
+    async def sync_member_invite_roles(self, member: discord.Member) -> None:
+        invite_count = self.get_invite_role_count_from_now(member.guild.id, member.id)
+        best_role_name = get_best_invite_role_name(invite_count)
+
+        invite_roles = {
+            role_name: discord.utils.get(member.guild.roles, name=role_name)
+            for role_name in INVITE_ROLE_REQUIREMENTS
+        }
+        roles_to_remove = [
+            role
+            for role_name, role in invite_roles.items()
+            if role is not None and role in member.roles and role_name != best_role_name
+        ]
+        role_to_add = invite_roles.get(best_role_name) if best_role_name else None
+
+        if roles_to_remove:
+            try:
+                await member.remove_roles(*roles_to_remove, reason="Mise à jour auto des rôles invitations")
+            except discord.HTTPException:
+                pass
+
+        if role_to_add is not None and role_to_add not in member.roles:
+            try:
+                await member.add_roles(role_to_add, reason="Attribution auto du rôle invitations")
+            except discord.HTTPException:
+                pass
+
+    async def sync_all_invite_roles(self, guild: discord.Guild) -> None:
+        for member in guild.members:
+            if member.bot:
+                continue
+            await self.sync_member_invite_roles(member)
+
     async def track_member_invite(self, member: discord.Member) -> discord.Member | None:
         store = self.get_invite_store(member.guild.id)
         before = self.invite_cache.get(
@@ -1675,7 +1816,10 @@ class YishiBot(commands.Bot):
         counts[key] = int(counts.get(key, 0)) + 1
         store["member_inviter_ids"][str(member.id)] = inviter.id
         self.save_invites()
-        return member.guild.get_member(inviter.id)
+        inviter_member = member.guild.get_member(inviter.id)
+        if inviter_member is not None:
+            await self.sync_member_invite_roles(inviter_member)
+        return inviter_member
 
     async def schedule_existing_giveaways(self) -> None:
         for guild_id, giveaways in self.giveaway_data.items():
@@ -2299,6 +2443,8 @@ class YishiBot(commands.Bot):
     async def sync_guild_commands(self, guild: discord.Guild) -> None:
         await self.ensure_ticket_config(guild)
         await self.cache_invites(guild)
+        self.initialize_invite_role_baseline(guild.id)
+        await self.sync_all_invite_roles(guild)
         self.tree.clear_commands(guild=guild)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)

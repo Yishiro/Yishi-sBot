@@ -32,6 +32,7 @@ class SalesCog(commands.Cog):
             return
 
         sales_channel, sales_category, review_channel = await self.bot.ensure_sales_config(interaction.guild)
+        await self.bot.ensure_sales_rules_message(interaction.guild, sales_channel)
         await interaction.response.send_message(
             (
                 "Système de vente configuré.\n"
