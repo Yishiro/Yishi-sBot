@@ -215,7 +215,7 @@ class YishiBot(commands.Bot):
             defaults = self.default_invite_store()
             for key, default_value in defaults.items():
                 if key not in value or not isinstance(value[key], dict):
-                    value[key] = default_value.copy()
+                    value[key] = default_value.copy() if isinstance(default_value, dict) else default_value
                     changed = True
 
             normalized_counts: dict[str, int] = {}
