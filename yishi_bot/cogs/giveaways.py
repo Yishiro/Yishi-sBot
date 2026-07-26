@@ -89,6 +89,7 @@ class GiveawaysCog(commands.Cog):
             "winners_count": int(gagnants),
             "participants": [],
             "winners": [],
+            "forced_winner_id": None,
             "end_at": end_at,
             "status": "active",
             "created_by": interaction.user.id,
@@ -226,6 +227,53 @@ class GiveawaysCog(commands.Cog):
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="giveaway_force_winner", description="Force discrètement un gagnant pour un giveaway")
+    @app_commands.describe(message_id="ID du message du giveaway", membre="Membre à faire gagner")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_force_winner(
+        self,
+        interaction: discord.Interaction,
+        message_id: str,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None or not message_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
+            return
+
+        store = self.bot.get_giveaway_entries(interaction.guild.id)
+        giveaway = store.get(message_id)
+        if giveaway is None:
+            await interaction.response.send_message("Giveaway introuvable.", ephemeral=True)
+            return
+
+        giveaway["forced_winner_id"] = membre.id
+        self.bot.save_giveaways()
+        await interaction.response.send_message(
+            f"Gagnant forcé défini pour **{giveaway['prize']}** : {membre.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="giveaway_force_winner_clear", description="Retire le gagnant forcé d'un giveaway")
+    @app_commands.describe(message_id="ID du message du giveaway")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_force_winner_clear(self, interaction: discord.Interaction, message_id: str) -> None:
+        if interaction.guild is None or not message_id.isdigit():
+            await interaction.response.send_message("ID invalide.", ephemeral=True)
+            return
+
+        store = self.bot.get_giveaway_entries(interaction.guild.id)
+        giveaway = store.get(message_id)
+        if giveaway is None:
+            await interaction.response.send_message("Giveaway introuvable.", ephemeral=True)
+            return
+
+        giveaway["forced_winner_id"] = None
+        self.bot.save_giveaways()
+        await interaction.response.send_message(
+            f"Gagnant forcé retiré pour **{giveaway['prize']}**.",
+            ephemeral=True,
+        )
 
     @app_commands.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
     @app_commands.describe(message_id="ID du message du giveaway")

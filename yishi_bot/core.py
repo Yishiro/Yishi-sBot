@@ -2247,12 +2247,6 @@ class YishiBot(commands.Bot):
             return
 
         user_id = interaction.user.id
-        if str(user_id) in self.get_giveaway_blacklist(interaction.guild.id):
-            await interaction.response.send_message(
-                "Participation enregistrée.",
-                ephemeral=True,
-            )
-            return
         participants = giveaway.setdefault("participants", [])
         if user_id in participants:
             await interaction.response.send_message(
@@ -2316,12 +2310,7 @@ class YishiBot(commands.Bot):
             )
             return
 
-        blacklist = set(int(user_id) for user_id in self.get_giveaway_blacklist(interaction.guild.id).keys())
-        participant_ids = [
-            user_id
-            for user_id in list(dict.fromkeys(giveaway.get("participants", [])))
-            if user_id not in blacklist
-        ]
+        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
         if not participant_ids:
             await interaction.response.send_message(
                 f"Aucun participant pour **{giveaway['prize']}** pour le moment.",
@@ -2424,16 +2413,31 @@ class YishiBot(commands.Bot):
             return
 
         blacklist = set(int(user_id) for user_id in self.get_giveaway_blacklist(guild_id).keys())
-        participant_ids = [
+        eligible_participant_ids = [
             user_id
             for user_id in list(dict.fromkeys(giveaway.get("participants", [])))
             if user_id not in blacklist
         ]
-        winners = await self._pick_weighted_winners(
+        winners: list[int] = []
+        forced_winner_id = giveaway.get("forced_winner_id")
+        if forced_winner_id is not None:
+            forced_member = guild.get_member(int(forced_winner_id))
+            if forced_member is None:
+                try:
+                    forced_member = await guild.fetch_member(int(forced_winner_id))
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException, ValueError):
+                    forced_member = None
+            if forced_member is not None:
+                winners.append(int(forced_winner_id))
+
+        remaining_slots = max(0, int(giveaway["winners_count"]) - len(winners))
+        extra_winners = await self._pick_weighted_winners(
             guild,
-            participant_ids,
-            int(giveaway["winners_count"]),
+            eligible_participant_ids,
+            remaining_slots,
+            excluded=set(winners),
         )
+        winners.extend(extra_winners)
 
         giveaway["status"] = "ended"
         giveaway["winners"] = winners
