@@ -273,9 +273,29 @@ class YishiBot(commands.Bot):
     def get_giveaway_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.giveaway_data:
-            self.giveaway_data[key] = {}
+            self.giveaway_data[key] = {"giveaways": {}, "blacklist": {}}
             self.save_giveaways()
-        return self.giveaway_data[key]
+        store = self.giveaway_data[key]
+        if "giveaways" not in store or not isinstance(store["giveaways"], dict):
+            legacy_giveaways = {
+                k: v
+                for k, v in list(store.items())
+                if isinstance(v, dict) and str(v.get("message_id", "")).isdigit()
+            }
+            store.clear()
+            store["giveaways"] = legacy_giveaways
+            store["blacklist"] = {}
+            self.save_giveaways()
+        if "blacklist" not in store or not isinstance(store["blacklist"], dict):
+            store["blacklist"] = {}
+            self.save_giveaways()
+        return store
+
+    def get_giveaway_entries(self, guild_id: int) -> dict[str, Any]:
+        return self.get_giveaway_store(guild_id)["giveaways"]
+
+    def get_giveaway_blacklist(self, guild_id: int) -> dict[str, Any]:
+        return self.get_giveaway_store(guild_id)["blacklist"]
 
     def get_sale_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
@@ -1822,7 +1842,8 @@ class YishiBot(commands.Bot):
         return inviter_member
 
     async def schedule_existing_giveaways(self) -> None:
-        for guild_id, giveaways in self.giveaway_data.items():
+        for guild_id, guild_store in self.giveaway_data.items():
+            giveaways = guild_store.get("giveaways", guild_store) if isinstance(guild_store, dict) else {}
             for message_id, giveaway in giveaways.items():
                 if giveaway.get("status") == "active":
                     self.schedule_giveaway_end(
@@ -2216,7 +2237,7 @@ class YishiBot(commands.Bot):
             )
             return
 
-        store = self.get_giveaway_store(interaction.guild.id)
+        store = self.get_giveaway_entries(interaction.guild.id)
         giveaway = store.get(str(interaction.message.id))
         if giveaway is None or giveaway.get("status") != "active":
             await interaction.response.send_message(
@@ -2226,6 +2247,12 @@ class YishiBot(commands.Bot):
             return
 
         user_id = interaction.user.id
+        if str(user_id) in self.get_giveaway_blacklist(interaction.guild.id):
+            await interaction.response.send_message(
+                "Participation enregistrée.",
+                ephemeral=True,
+            )
+            return
         participants = giveaway.setdefault("participants", [])
         if user_id in participants:
             await interaction.response.send_message(
@@ -2263,7 +2290,7 @@ class YishiBot(commands.Bot):
         if interaction.guild is None or interaction.message is None:
             await interaction.response.send_message("Impossible d'afficher le temps restant ici.", ephemeral=True)
             return
-        giveaway = self.get_giveaway_store(interaction.guild.id).get(str(interaction.message.id))
+        giveaway = self.get_giveaway_entries(interaction.guild.id).get(str(interaction.message.id))
         if giveaway is None:
             await interaction.response.send_message("Aucun giveaway trouvé pour ce message.", ephemeral=True)
             return
@@ -2281,7 +2308,7 @@ class YishiBot(commands.Bot):
             )
             return
 
-        giveaway = self.get_giveaway_store(interaction.guild.id).get(str(interaction.message.id))
+        giveaway = self.get_giveaway_entries(interaction.guild.id).get(str(interaction.message.id))
         if giveaway is None:
             await interaction.response.send_message(
                 "Aucun giveaway trouvé pour ce message.",
@@ -2289,7 +2316,12 @@ class YishiBot(commands.Bot):
             )
             return
 
-        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
+        blacklist = set(int(user_id) for user_id in self.get_giveaway_blacklist(interaction.guild.id).keys())
+        participant_ids = [
+            user_id
+            for user_id in list(dict.fromkeys(giveaway.get("participants", [])))
+            if user_id not in blacklist
+        ]
         if not participant_ids:
             await interaction.response.send_message(
                 f"Aucun participant pour **{giveaway['prize']}** pour le moment.",
@@ -2379,7 +2411,7 @@ class YishiBot(commands.Bot):
         return winners
 
     async def finish_giveaway(self, guild_id: int, message_id: int) -> None:
-        store = self.get_giveaway_store(guild_id)
+        store = self.get_giveaway_entries(guild_id)
         giveaway = store.get(str(message_id))
         if giveaway is None or giveaway.get("status") != "active":
             return
@@ -2391,7 +2423,12 @@ class YishiBot(commands.Bot):
         if not isinstance(channel, discord.TextChannel):
             return
 
-        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
+        blacklist = set(int(user_id) for user_id in self.get_giveaway_blacklist(guild_id).keys())
+        participant_ids = [
+            user_id
+            for user_id in list(dict.fromkeys(giveaway.get("participants", [])))
+            if user_id not in blacklist
+        ]
         winners = await self._pick_weighted_winners(
             guild,
             participant_ids,
@@ -2419,7 +2456,7 @@ class YishiBot(commands.Bot):
             )
 
     async def reroll_giveaway(self, guild_id: int, message_id: int) -> list[int]:
-        store = self.get_giveaway_store(guild_id)
+        store = self.get_giveaway_entries(guild_id)
         giveaway = store.get(str(message_id))
         if giveaway is None:
             return []
@@ -2428,7 +2465,12 @@ class YishiBot(commands.Bot):
         if guild is None:
             return []
 
-        participant_ids = list(dict.fromkeys(giveaway.get("participants", [])))
+        blacklist = set(int(user_id) for user_id in self.get_giveaway_blacklist(guild_id).keys())
+        participant_ids = [
+            user_id
+            for user_id in list(dict.fromkeys(giveaway.get("participants", [])))
+            if user_id not in blacklist
+        ]
         previous_winners = set(giveaway.get("winners", []))
         winners = await self._pick_weighted_winners(
             guild,

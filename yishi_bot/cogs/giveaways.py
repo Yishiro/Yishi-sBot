@@ -81,7 +81,7 @@ class GiveawaysCog(commands.Cog):
         )
         message = await salon.send(embed=embed, view=GiveawayView(self.bot))
 
-        store = self.bot.get_giveaway_store(interaction.guild.id)
+        store = self.bot.get_giveaway_entries(interaction.guild.id)
         store[str(message.id)] = {
             "message_id": message.id,
             "channel_id": salon.id,
@@ -123,7 +123,7 @@ class GiveawaysCog(commands.Cog):
             )
             return
 
-        store = self.bot.get_giveaway_store(interaction.guild.id)
+        store = self.bot.get_giveaway_entries(interaction.guild.id)
         if not store:
             await interaction.response.send_message(
                 "Aucun giveaway enregistré sur ce serveur.",
@@ -154,6 +154,77 @@ class GiveawaysCog(commands.Cog):
                 inline=False,
             )
 
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="giveaway_blacklist_add", description="Blacklist un membre des giveaways")
+    @app_commands.describe(membre="Membre à blacklist", raison="Raison staff de la blacklist")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_blacklist_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        raison: str,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        store = self.bot.get_giveaway_blacklist(interaction.guild.id)
+        store[str(membre.id)] = {
+            "reason": raison,
+            "added_by": interaction.user.id,
+            "added_at": discord.utils.utcnow().isoformat(),
+        }
+        self.bot.save_giveaways()
+        await interaction.response.send_message(
+            f"{membre.mention} a été blacklist des giveaways.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="giveaway_blacklist_remove", description="Retire un membre de la blacklist giveaways")
+    @app_commands.describe(membre="Membre à retirer de la blacklist")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_blacklist_remove(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        store = self.bot.get_giveaway_blacklist(interaction.guild.id)
+        removed = store.pop(str(membre.id), None)
+        self.bot.save_giveaways()
+        if removed is None:
+            await interaction.response.send_message("Ce membre n'était pas blacklist.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"{membre.mention} a été retiré de la blacklist giveaways.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="giveaway_blacklist_list", description="Affiche la blacklist giveaways")
+    @app_commands.default_permissions(manage_guild=True)
+    async def giveaway_blacklist_list(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        store = self.bot.get_giveaway_blacklist(interaction.guild.id)
+        if not store:
+            await interaction.response.send_message("Aucun membre blacklist des giveaways.", ephemeral=True)
+            return
+
+        lines = []
+        for member_id, data in list(store.items())[:25]:
+            member = interaction.guild.get_member(int(member_id))
+            label = member.mention if member is not None else member_id
+            reason = data.get("reason", "Aucune raison")
+            lines.append(f"{label} • {reason}")
+
+        embed = discord.Embed(
+            title="Blacklist giveaways",
+            description="\n".join(lines),
+            color=discord.Color.red(),
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="giveaway_reroll", description="Retire un nouveau gagnant pour un giveaway")
