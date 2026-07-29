@@ -25,7 +25,9 @@ from yishi_bot.constants import (
     GACHA_SPIN_TYPES,
     HELPER_ROLE_NAME,
     INVITE_ROLE_REQUIREMENTS,
+    MEMBER_ROLE_NAME,
     MODERATOR_ROLE_NAME,
+    PRESERVED_CLIENT_ROLE_ID,
     RESPONSABLE_ROLE_NAME,
     RULES_ACCEPT_TEXT,
     RULES_TEXT,
@@ -53,6 +55,101 @@ class ConfigurationCog(commands.Cog):
         if role.is_default() or role.managed:
             return False
         return me.guild_permissions.manage_roles and me.top_role > role
+
+    @app_commands.command(name="roles_rebuild", description="Supprime les rôles supprimables et recrée une hiérarchie propre")
+    @app_commands.default_permissions(manage_guild=True)
+    async def roles_rebuild(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        guild = interaction.guild
+        config = self.bot.get_guild_config(guild.id)
+
+        preserved_role = guild.get_role(PRESERVED_CLIENT_ROLE_ID)
+        deleted_roles: list[str] = []
+        blocked_roles: list[str] = []
+
+        for role in sorted(guild.roles, key=lambda item: item.position, reverse=True):
+            if role.is_default() or role.managed or role.id == PRESERVED_CLIENT_ROLE_ID:
+                continue
+            if not self.can_manage_role(guild, role):
+                blocked_roles.append(role.name)
+                continue
+            await role.delete(reason="Reconstruction complète des rôles")
+            deleted_roles.append(role.name)
+
+        role_specs: list[tuple[str, discord.Color]] = [
+            (MEMBER_ROLE_NAME, discord.Color.from_rgb(52, 152, 219)),
+            (FREE_ACCESS_ROLE_NAME, discord.Color.from_rgb(26, 188, 156)),
+            ("\U0001f949\u30fbInviteur Bronze [5]", discord.Color.from_rgb(205, 127, 50)),
+            ("\U0001f948\u30fbInviteur Silver [10]", discord.Color.from_rgb(192, 192, 192)),
+            ("\U0001f947\u30fbInviteur Gold [15]", discord.Color.from_rgb(241, 196, 15)),
+            ("\U0001f48e\u30fbInviteur Diamond [20]", discord.Color.from_rgb(85, 239, 196)),
+            ("\u2728\u30fbNiveau Novice", discord.Color.from_rgb(149, 165, 166)),
+            ("\U0001f31f\u30fbNiveau Actif", discord.Color.from_rgb(52, 152, 255)),
+            ("\U0001f4a0\u30fbNiveau Confirm\u00e9", discord.Color.from_rgb(63, 217, 157)),
+            ("\U0001f525\u30fbNiveau Elite", discord.Color.from_rgb(174, 82, 255)),
+            ("\U0001f451\u30fbNiveau L\u00e9gende", discord.Color.from_rgb(255, 198, 64)),
+            (HELPER_ROLE_NAME, discord.Color.from_rgb(46, 204, 113)),
+            (TRIAL_MOD_ROLE_NAME, discord.Color.from_rgb(39, 174, 96)),
+            (MODERATOR_ROLE_NAME, discord.Color.from_rgb(230, 126, 34)),
+            (RESPONSABLE_ROLE_NAME, discord.Color.from_rgb(231, 76, 60)),
+            (ADMIN_ROLE_NAME, discord.Color.from_rgb(155, 89, 182)),
+            (AUTO_STAFF_ROLE_NAME, discord.Color.from_rgb(52, 73, 94)),
+            (FOUNDER_ROLE_NAME, discord.Color.from_rgb(243, 156, 18)),
+            (AUTO_ARCHIVE_ROLE_NAME, discord.Color.from_rgb(142, 68, 173)),
+        ]
+
+        created_roles: dict[str, discord.Role] = {}
+        for role_name, color in role_specs:
+            role = await guild.create_role(
+                name=role_name,
+                color=color,
+                mentionable=False,
+                reason="Reconstruction complète des rôles",
+            )
+            created_roles[role_name] = role
+
+        ordered_roles = [created_roles[name] for name, _ in role_specs]
+        positions = {role: index for index, role in enumerate(ordered_roles, start=1)}
+        await guild.edit_role_positions(positions=positions)
+
+        config["helper_role_id"] = created_roles[HELPER_ROLE_NAME].id
+        config["trial_mod_role_id"] = created_roles[TRIAL_MOD_ROLE_NAME].id
+        config["moderator_role_id"] = created_roles[MODERATOR_ROLE_NAME].id
+        config["responsable_role_id"] = created_roles[RESPONSABLE_ROLE_NAME].id
+        config["admin_role_id"] = created_roles[ADMIN_ROLE_NAME].id
+        config["staff_role_id"] = created_roles[AUTO_STAFF_ROLE_NAME].id
+        config["founder_role_id"] = created_roles[FOUNDER_ROLE_NAME].id
+        config["archive_role_id"] = created_roles[AUTO_ARCHIVE_ROLE_NAME].id
+        config["free_access_role_id"] = created_roles[FREE_ACCESS_ROLE_NAME].id
+        self.bot.save_config()
+
+        member_role = created_roles[MEMBER_ROLE_NAME]
+        assigned_count = 0
+        for member in guild.members:
+            if member_role not in member.roles:
+                await member.add_roles(member_role, reason="Attribution du rôle membre")
+                assigned_count += 1
+
+        await self.bot.sync_all_xp_roles(guild)
+        await self.bot.sync_all_free_access_roles(guild)
+
+        result_lines = [
+            "Reconstruction des rôles terminée.",
+            f"Rôle conservé : {preserved_role.name if preserved_role else PRESERVED_CLIENT_ROLE_ID}",
+            f"Rôles supprimés : {len(deleted_roles)}",
+            f"Nouveaux rôles créés : {len(created_roles)}",
+            f"Membres ayant reçu {MEMBER_ROLE_NAME} : {assigned_count}",
+        ]
+        if blocked_roles:
+            result_lines.append("")
+            result_lines.append("Rôles non supprimés car au-dessus du bot :")
+            result_lines.extend(blocked_roles)
+
+        await interaction.followup.send("\n".join(result_lines), ephemeral=True)
 
     @app_commands.command(name="roles_fix", description="Corrige automatiquement les r?les staff, niveaux et invitations")
     @app_commands.default_permissions(manage_guild=True)
