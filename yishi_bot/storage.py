@@ -23,6 +23,7 @@ GIVEAWAYS_FILE = DATA_DIR / "giveaways.json"
 GACHA_FILE = DATA_DIR / "gacha.json"
 SALES_FILE = DATA_DIR / "sales.json"
 PROMOS_FILE = DATA_DIR / "promos.json"
+LEVELS_FILE = DATA_DIR / "levels.json"
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 STATE_TABLE_NAME = "bot_state"

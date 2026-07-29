@@ -18,6 +18,7 @@ from yishi_bot.storage import (
     GACHA_FILE,
     GIVEAWAYS_FILE,
     INVITES_FILE,
+    LEVELS_FILE,
     PROMOS_FILE,
     SALES_FILE,
     TICKETS_FILE,
@@ -40,6 +41,7 @@ from yishi_bot.helpers import (
     can_moderate,
     default_config,
     default_gacha_store,
+    default_level_store,
     default_promo_store,
     get_best_invite_role_name,
     get_member_giveaway_weight,
@@ -64,10 +66,13 @@ class YishiBot(commands.Bot):
         self.gacha_data = load_json(GACHA_FILE, default_gacha_store())
         self.sale_data = load_json(SALES_FILE, {})
         self.promo_data = load_json(PROMOS_FILE, {})
+        self.level_data = load_json(LEVELS_FILE, default_level_store())
         if self._migrate_invite_data():
             self.save_invites()
         if merge_missing_defaults(self.gacha_data, default_gacha_store()):
             self.save_gacha()
+        if merge_missing_defaults(self.level_data, default_level_store()):
+            self.save_levels()
 
         self.invite_cache: dict[int, dict[str, int]] = {}
         self.giveaway_tasks: dict[str, asyncio.Task] = {}
@@ -170,9 +175,61 @@ class YishiBot(commands.Bot):
     def get_ticket_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.ticket_data:
-            self.ticket_data[key] = {"channels": {}}
+            self.ticket_data[key] = {
+                "channels": {},
+                "staff_points": {},
+                "panel_message_id": None,
+            }
             self.save_tickets()
+        else:
+            store = self.ticket_data[key]
+            changed = False
+            if "channels" not in store or not isinstance(store["channels"], dict):
+                store["channels"] = {}
+                changed = True
+            if "staff_points" not in store or not isinstance(store["staff_points"], dict):
+                store["staff_points"] = {}
+                changed = True
+            if "panel_message_id" not in store:
+                store["panel_message_id"] = None
+                changed = True
+            for ticket in store["channels"].values():
+                if "assigned_helper_id" not in ticket:
+                    ticket["assigned_helper_id"] = None
+                    changed = True
+                if "claimed_at" not in ticket:
+                    ticket["claimed_at"] = None
+                    changed = True
+                if "destination" not in ticket:
+                    ticket["destination"] = "helper"
+                    changed = True
+                if "transferred_by" not in ticket:
+                    ticket["transferred_by"] = None
+                    changed = True
+                if "transfer_reason" not in ticket:
+                    ticket["transfer_reason"] = None
+                    changed = True
+                if "transfer_summary" not in ticket:
+                    ticket["transfer_summary"] = None
+                    changed = True
+                if "claimed_messages" not in ticket:
+                    ticket["claimed_messages"] = 0
+                    changed = True
+            if changed:
+                self.save_tickets()
         return self.ticket_data[key]
+
+    def get_level_store(self, guild_id: int) -> dict[str, Any]:
+        key = str(guild_id)
+        if key not in self.level_data:
+            self.level_data[key] = {
+                "members": {},
+                "voice_sessions": {},
+            }
+            self.save_levels()
+        elif merge_missing_defaults(self.level_data[key], default_level_store()):
+            self.save_levels()
+        return self.level_data[key]
 
     def get_warning_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
@@ -184,10 +241,12 @@ class YishiBot(commands.Bot):
     def default_invite_store(self) -> dict[str, Any]:
         return {
             "counts": {},
+            "weekly_counts": {},
             "invite_snapshot": {},
             "member_inviter_ids": {},
             "role_baseline_counts": {},
             "role_baseline_initialized_at": None,
+            "last_weekly_reset_key": None,
         }
 
     def _migrate_invite_data(self) -> bool:
@@ -206,6 +265,7 @@ class YishiBot(commands.Bot):
                 }
                 self.invite_data[guild_id] = {
                     "counts": legacy_counts,
+                    "weekly_counts": {},
                     "invite_snapshot": {},
                     "member_inviter_ids": {},
                 }
@@ -338,6 +398,9 @@ class YishiBot(commands.Bot):
     def save_tickets(self) -> None:
         save_json(TICKETS_FILE, self.ticket_data)
 
+    def save_levels(self) -> None:
+        save_json(LEVELS_FILE, self.level_data)
+
     def save_warnings(self) -> None:
         save_json(WARNINGS_FILE, self.warning_data)
 
@@ -358,6 +421,10 @@ class YishiBot(commands.Bot):
 
     def get_invite_count(self, guild_id: int, user_id: int) -> int:
         counts = self.get_invite_store(guild_id)["counts"]
+        return int(counts.get(str(user_id), 0))
+
+    def get_weekly_invite_count(self, guild_id: int, user_id: int) -> int:
+        counts = self.get_invite_store(guild_id)["weekly_counts"]
         return int(counts.get(str(user_id), 0))
 
     def get_invite_role_count_from_now(self, guild_id: int, user_id: int) -> int:
@@ -383,6 +450,41 @@ class YishiBot(commands.Bot):
     def get_member_inviter_id(self, guild_id: int, member_id: int) -> int | None:
         inviter_id = self.get_invite_store(guild_id)["member_inviter_ids"].get(str(member_id))
         return int(inviter_id) if inviter_id is not None else None
+
+    def is_helper_member(self, member: discord.Member) -> bool:
+        helper_names = {
+            HELPER_ROLE_NAME,
+            TRIAL_MOD_ROLE_NAME,
+            MODERATOR_ROLE_NAME,
+            RESPONSABLE_ROLE_NAME,
+            ADMIN_ROLE_NAME,
+            FOUNDER_ROLE_NAME,
+            AUTO_STAFF_ROLE_NAME,
+            AUTO_ARCHIVE_ROLE_NAME,
+        }
+        return any(role.name in helper_names for role in member.roles) or member.guild.owner_id == member.id
+
+    def can_close_tickets(self, member: discord.Member) -> bool:
+        close_role_names = {
+            MODERATOR_ROLE_NAME,
+            RESPONSABLE_ROLE_NAME,
+            ADMIN_ROLE_NAME,
+            FOUNDER_ROLE_NAME,
+            AUTO_STAFF_ROLE_NAME,
+            AUTO_ARCHIVE_ROLE_NAME,
+        }
+        return any(role.name in close_role_names for role in member.roles) or member.guild.owner_id == member.id
+
+    def get_staff_point_total(self, guild_id: int, user_id: int) -> int:
+        store = self.get_ticket_store(guild_id)["staff_points"]
+        return int(store.get(str(user_id), 0))
+
+    def add_staff_points(self, guild_id: int, user_id: int, amount: int) -> int:
+        store = self.get_ticket_store(guild_id)["staff_points"]
+        key = str(user_id)
+        store[key] = int(store.get(key, 0)) + amount
+        self.save_tickets()
+        return int(store[key])
 
     def get_gacha_inventory(self, user_id: int) -> dict[str, int]:
         key = str(user_id)
@@ -758,6 +860,262 @@ class YishiBot(commands.Bot):
 
     async def configure_staff_only_channel(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
         await self.configure_logs_channel_permissions(guild, channel)
+
+    async def ensure_role(self, guild: discord.Guild, name: str, *, mentionable: bool = False) -> discord.Role:
+        role = discord.utils.get(guild.roles, name=name)
+        if role is None:
+            role = await guild.create_role(name=name, mentionable=mentionable, reason="Configuration automatique du serveur")
+        return role
+
+    async def ensure_category(
+        self,
+        guild: discord.Guild,
+        categories: dict[str, discord.CategoryChannel],
+        name: str,
+    ) -> discord.CategoryChannel:
+        category = categories.get(name) or discord.utils.get(guild.categories, name=name)
+        if category is None:
+            category = await guild.create_category(name, reason="Configuration automatique du serveur")
+        categories[name] = category
+        return category
+
+    async def ensure_text_channel(
+        self,
+        guild: discord.Guild,
+        categories: dict[str, discord.CategoryChannel],
+        name: str,
+        *,
+        category_name: str,
+        protected_id: int | None = None,
+    ) -> discord.TextChannel:
+        channel = guild.get_channel(protected_id) if protected_id else None
+        if not isinstance(channel, discord.TextChannel):
+            channel = discord.utils.get(guild.text_channels, name=name)
+        if channel is None:
+            channel = await guild.create_text_channel(name, reason="Configuration automatique du serveur")
+        category = await self.ensure_category(guild, categories, category_name)
+        await channel.edit(name=name, category=category, reason="Organisation automatique du serveur")
+        return channel
+
+    async def ensure_voice_channel(
+        self,
+        guild: discord.Guild,
+        categories: dict[str, discord.CategoryChannel],
+        name: str,
+        *,
+        category_name: str,
+    ) -> discord.VoiceChannel:
+        channel = discord.utils.get(guild.voice_channels, name=name)
+        if channel is None:
+            channel = await guild.create_voice_channel(name, reason="Configuration automatique du serveur")
+        category = await self.ensure_category(guild, categories, category_name)
+        await channel.edit(name=name, category=category, reason="Organisation automatique du serveur")
+        return channel
+
+    def build_shop_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="Yishi's Shop",
+            description=(
+                "Bienvenue sur le shop.\n\n"
+                "Tu peux retrouver ici nos différents services, preuves et avis clients.\n"
+                "Pour les prix, disponibilités ou demandes spéciales, ouvre un ticket ou viens en message privé."
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(
+            name="Services",
+            value="Blox Fruits, services variés, gacha, ventes entre membres et offres ponctuelles.",
+            inline=False,
+        )
+        embed.set_footer(text="Prix et demandes spéciales uniquement en ticket ou en DM")
+        return embed
+
+    def build_free_access_embed(self, service_name: str) -> discord.Embed:
+        embed = discord.Embed(
+            title=f"{service_name} Free",
+            description=(
+                "Ce salon est réservé aux membres ayant atteint l'accès hebdomadaire.\n"
+                f"Il faut au moins **{FREE_INVITE_REQUIREMENT} invitations cette semaine** pour y accéder.\n"
+                "Les accès sont réinitialisés chaque semaine."
+            ),
+            color=discord.Color.dark_teal(),
+        )
+        embed.set_footer(text="Lecture seule • Le staff et le bot publient les comptes")
+        return embed
+
+    async def rebuild_server(self, guild: discord.Guild) -> dict[str, int]:
+        config = self.get_guild_config(guild.id)
+        categories: dict[str, discord.CategoryChannel] = {}
+        kept_channel_ids = set(PROTECTED_CHANNEL_IDS)
+
+        staff_role = await self.ensure_role(guild, AUTO_STAFF_ROLE_NAME)
+        helper_role = await self.ensure_role(guild, HELPER_ROLE_NAME)
+        trial_mod_role = await self.ensure_role(guild, TRIAL_MOD_ROLE_NAME)
+        moderator_role = await self.ensure_role(guild, MODERATOR_ROLE_NAME)
+        responsable_role = await self.ensure_role(guild, RESPONSABLE_ROLE_NAME)
+        admin_role = await self.ensure_role(guild, ADMIN_ROLE_NAME)
+        founder_role = await self.ensure_role(guild, FOUNDER_ROLE_NAME)
+        archive_role = await self.ensure_role(guild, AUTO_ARCHIVE_ROLE_NAME)
+        free_role = await self.ensure_role(guild, FREE_ACCESS_ROLE_NAME)
+        for role_name in XP_ROLE_NAMES:
+            await self.ensure_role(guild, role_name)
+
+        config["staff_role_id"] = staff_role.id
+        config["helper_role_id"] = helper_role.id
+        config["trial_mod_role_id"] = trial_mod_role.id
+        config["moderator_role_id"] = moderator_role.id
+        config["responsable_role_id"] = responsable_role.id
+        config["admin_role_id"] = admin_role.id
+        config["founder_role_id"] = founder_role.id
+        config["archive_role_id"] = archive_role.id
+        config["free_access_role_id"] = free_role.id
+
+        welcome_channel = await self.ensure_text_channel(guild, categories, WELCOME_CHANNEL_NAME, category_name="✦ ACCUEIL", protected_id=1493595067338723338)
+        rules_channel = await self.ensure_text_channel(guild, categories, RULES_CHANNEL_NAME, category_name="✦ ACCUEIL")
+        announcements_channel = await self.ensure_text_channel(guild, categories, ANNOUNCEMENTS_CHANNEL_NAME, category_name="✦ ACCUEIL")
+        shop_channel = await self.ensure_text_channel(guild, categories, SHOP_CHANNEL_NAME, category_name="✦ BOUTIQUE")
+        proofs_channel = await self.ensure_text_channel(guild, categories, PROOFS_CHANNEL_NAME, category_name="✦ BOUTIQUE", protected_id=1490431484593574039)
+        vouches_channel = await self.ensure_text_channel(guild, categories, VOUCHES_CHANNEL_NAME, category_name="✦ BOUTIQUE", protected_id=1490432216952733847)
+        reviews_channel = await self.ensure_text_channel(guild, categories, REVIEWS_CHANNEL_NAME, category_name="✦ BOUTIQUE", protected_id=1490431507859247134)
+        uber_eat_channel = await self.ensure_text_channel(guild, categories, UBER_EAT_CHANNEL_NAME, category_name="✦ BOUTIQUE", protected_id=1501249716980285530)
+        gacha_spin_channel = await self.ensure_text_channel(guild, categories, AUTO_GACHA_SPIN_CHANNEL_NAME, category_name="✦ BOUTIQUE")
+        gacha_winner_channel = await self.ensure_text_channel(guild, categories, AUTO_GACHA_WINNER_CHANNEL_NAME, category_name="✦ BOUTIQUE", protected_id=1502264206794297395)
+        sales_channel = await self.ensure_text_channel(guild, categories, AUTO_SALES_CHANNEL_NAME, category_name="✦ BOUTIQUE")
+        netflix_channel = await self.ensure_text_channel(guild, categories, FREE_NETFLIX_CHANNEL_NAME, category_name=FREE_CATEGORY_NAME)
+        crunchyroll_channel = await self.ensure_text_channel(guild, categories, FREE_CRUNCHYROLL_CHANNEL_NAME, category_name=FREE_CATEGORY_NAME)
+        general_channel = await self.ensure_text_channel(guild, categories, GENERAL_CHANNEL_NAME, category_name="✦ COMMUNAUTÉ", protected_id=1493004543137681498)
+        media_channel = await self.ensure_text_channel(guild, categories, MEDIA_CHANNEL_NAME, category_name="✦ COMMUNAUTÉ", protected_id=1490431816224473208)
+        giveaways_channel = await self.ensure_text_channel(guild, categories, GIVEAWAYS_CHANNEL_NAME, category_name="✦ COMMUNAUTÉ")
+        ticket_panel_channel = await self.ensure_text_channel(guild, categories, TICKET_PANEL_CHANNEL_NAME, category_name="✦ SUPPORT")
+        ticket_info_channel = await self.ensure_text_channel(guild, categories, TICKET_INFO_CHANNEL_NAME, category_name="✦ SUPPORT")
+        logs_channel = await self.ensure_text_channel(guild, categories, AUTO_LOGS_CHANNEL_NAME, category_name="✦ STAFF")
+        transcript_channel = await self.ensure_text_channel(guild, categories, "📄・logs-transcript", category_name="✦ STAFF")
+        sales_review_channel = await self.ensure_text_channel(guild, categories, "✅・ventes-validation", category_name="✦ STAFF")
+        gacha_logs_channel = await self.ensure_text_channel(guild, categories, "📝・gacha-logs", category_name="✦ STAFF")
+        staff_prices_channel = await self.ensure_text_channel(guild, categories, STAFF_PRICE_CHANNEL_NAME, category_name="✦ STAFF")
+        voice_creator_channel = await self.ensure_voice_channel(guild, categories, VOICE_CREATOR_CHANNEL_NAME, category_name="✦ VOCAUX")
+        helper_ticket_category = await self.ensure_category(guild, categories, HELPER_TICKET_CATEGORY_NAME)
+        purchase_ticket_category = await self.ensure_category(guild, categories, PURCHASE_TICKET_CATEGORY_NAME)
+        staff_ticket_category = await self.ensure_category(guild, categories, STAFF_TICKET_CATEGORY_NAME)
+        archive_ticket_category = await self.ensure_category(guild, categories, ARCHIVED_TICKET_CATEGORY_NAME)
+        sales_private_category = await self.ensure_category(guild, categories, AUTO_SALES_CATEGORY_NAME)
+
+        config["welcome_channel_id"] = welcome_channel.id
+        config["rules_channel_id"] = rules_channel.id
+        config["announcements_channel_id"] = announcements_channel.id
+        config["shop_channel_id"] = shop_channel.id
+        config["gacha_spin_channel_id"] = gacha_spin_channel.id
+        config["gacha_winner_channel_id"] = gacha_winner_channel.id
+        config["gacha_logs_channel_id"] = gacha_logs_channel.id
+        config["sales_channel_id"] = sales_channel.id
+        config["sales_review_channel_id"] = sales_review_channel.id
+        config["sales_category_id"] = sales_private_category.id
+        config["logs_channel_id"] = logs_channel.id
+        config["transcript_logs_channel_id"] = transcript_channel.id
+        config["giveaways_channel_id"] = giveaways_channel.id
+        config["free_category_id"] = categories[FREE_CATEGORY_NAME].id
+        config["free_netflix_channel_id"] = netflix_channel.id
+        config["free_crunchyroll_channel_id"] = crunchyroll_channel.id
+        config["ticket_category_id"] = helper_ticket_category.id
+        config["ticket_helper_category_id"] = helper_ticket_category.id
+        config["ticket_purchase_category_id"] = purchase_ticket_category.id
+        config["ticket_staff_category_id"] = staff_ticket_category.id
+        config["archive_category_id"] = archive_ticket_category.id
+        config["voice_category_id"] = categories["✦ VOCAUX"].id
+        config["voice_creator_channel_id"] = voice_creator_channel.id
+        config["staff_prices_channel_id"] = staff_prices_channel.id
+        if guild.get_channel(DEFAULT_PROMO_CHANNEL_ID):
+            config["promo_channel_id"] = DEFAULT_PROMO_CHANNEL_ID
+
+        keep_channel_ids = {
+            welcome_channel.id,
+            rules_channel.id,
+            announcements_channel.id,
+            shop_channel.id,
+            proofs_channel.id,
+            vouches_channel.id,
+            reviews_channel.id,
+            uber_eat_channel.id,
+            gacha_spin_channel.id,
+            gacha_winner_channel.id,
+            sales_channel.id,
+            netflix_channel.id,
+            crunchyroll_channel.id,
+            general_channel.id,
+            media_channel.id,
+            giveaways_channel.id,
+            ticket_panel_channel.id,
+            ticket_info_channel.id,
+            logs_channel.id,
+            transcript_channel.id,
+            sales_review_channel.id,
+            gacha_logs_channel.id,
+            staff_prices_channel.id,
+            voice_creator_channel.id,
+        } | kept_channel_ids
+
+        keep_category_ids = {
+            category.id
+            for category in (
+                helper_ticket_category,
+                purchase_ticket_category,
+                staff_ticket_category,
+                archive_ticket_category,
+                sales_private_category,
+                *categories.values(),
+            )
+        }
+
+        for channel in list(guild.channels):
+            if channel.id in keep_channel_ids or channel.id in keep_category_ids:
+                continue
+            with contextlib.suppress(discord.HTTPException):
+                await channel.delete(reason="Reconstruction automatique du serveur")
+
+        for category in list(guild.categories):
+            if category.id in keep_category_ids:
+                continue
+            if category.channels:
+                continue
+            with contextlib.suppress(discord.HTTPException):
+                await category.delete(reason="Reconstruction automatique du serveur")
+
+        await self.configure_logs_channel_permissions(guild, logs_channel)
+        await self.configure_staff_only_channel(guild, transcript_channel)
+        await self.configure_staff_only_channel(guild, sales_review_channel)
+        await self.configure_staff_only_channel(guild, gacha_logs_channel)
+        await self.configure_staff_only_channel(guild, staff_prices_channel)
+
+        for free_channel in (netflix_channel, crunchyroll_channel):
+            await free_channel.set_permissions(guild.default_role, view_channel=False, send_messages=False, add_reactions=False)
+            await free_channel.set_permissions(free_role, view_channel=True, send_messages=False, read_message_history=True, add_reactions=False)
+            for role in (helper_role, trial_mod_role, moderator_role, responsable_role, admin_role, founder_role, staff_role, archive_role):
+                await free_channel.set_permissions(role, view_channel=True, send_messages=True, read_message_history=True)
+
+        await sales_channel.set_permissions(guild.default_role, view_channel=True, send_messages=False)
+
+        with contextlib.suppress(discord.HTTPException):
+            await shop_channel.send(embed=self.build_shop_embed())
+        with contextlib.suppress(discord.HTTPException):
+            await netflix_channel.send(embed=self.build_free_access_embed("Netflix"))
+        with contextlib.suppress(discord.HTTPException):
+            await crunchyroll_channel.send(embed=self.build_free_access_embed("Crunchyroll"))
+        with contextlib.suppress(discord.HTTPException):
+            await self.send_rules_text(rules_channel)
+        with contextlib.suppress(discord.HTTPException):
+            panel_message = await ticket_panel_channel.send(embed=build_ticket_panel_embed(), view=TicketPanelView(self))
+            self.get_ticket_store(guild.id)["panel_message_id"] = panel_message.id
+            config["ticket_panel_message_id"] = panel_message.id
+
+        await self.ensure_sales_rules_message(guild, sales_channel)
+        self.save_config()
+        self.save_tickets()
+        await self.sync_all_free_access_roles(guild)
+        return {
+            "roles": 9 + len(XP_ROLE_NAMES),
+            "channels": len(keep_channel_ids),
+            "categories": len(keep_category_ids),
+        }
 
     def build_sale_embed(self, sale: dict[str, Any], *, reserved: bool = False) -> discord.Embed:
         status = "reserved" if reserved else sale.get("status", "available")
@@ -1608,6 +1966,21 @@ class YishiBot(commands.Bot):
             if changed:
                 self.save_sales()
 
+    async def process_weekly_free_access_reset(self) -> None:
+        now_paris = self.utcnow().astimezone(self.paris_tz)
+        if now_paris.weekday() != 0 or now_paris.hour != 0:
+            return
+
+        current_week_key = now_paris.strftime("%G-W%V")
+        for guild in self.guilds:
+            store = self.get_invite_store(guild.id)
+            if store.get("last_weekly_reset_key") == current_week_key:
+                continue
+            store["weekly_counts"] = {}
+            store["last_weekly_reset_key"] = current_week_key
+            self.save_invites()
+            await self.sync_all_free_access_roles(guild)
+
     async def run_background_jobs(self) -> None:
         await self.wait_until_ready()
         while not self.is_closed():
@@ -1615,6 +1988,7 @@ class YishiBot(commands.Bot):
                 await self.process_ticket_recalls()
                 await self.process_sale_recalls()
                 await self.process_weekly_promotions()
+                await self.process_weekly_free_access_reset()
             except Exception:
                 traceback.print_exc()
             await asyncio.sleep(300)
@@ -1802,6 +2176,30 @@ class YishiBot(commands.Bot):
                 continue
             await self.sync_member_invite_roles(member)
 
+    async def sync_member_free_access(self, member: discord.Member) -> None:
+        config = self.get_guild_config(member.guild.id)
+        role = member.guild.get_role(config["free_access_role_id"]) if config["free_access_role_id"] else None
+        if role is None:
+            role = discord.utils.get(member.guild.roles, name=FREE_ACCESS_ROLE_NAME)
+            if role is None:
+                return
+            config["free_access_role_id"] = role.id
+            self.save_config()
+
+        weekly_count = self.get_weekly_invite_count(member.guild.id, member.id)
+        has_role = role in member.roles
+        should_have_role = weekly_count >= FREE_INVITE_REQUIREMENT
+        if should_have_role and not has_role:
+            await member.add_roles(role, reason="Accès free hebdomadaire débloqué")
+        elif has_role and not should_have_role:
+            await member.remove_roles(role, reason="Réinitialisation hebdomadaire des accès free")
+
+    async def sync_all_free_access_roles(self, guild: discord.Guild) -> None:
+        for member in guild.members:
+            if member.bot:
+                continue
+            await self.sync_member_free_access(member)
+
     async def track_member_invite(self, member: discord.Member) -> discord.Member | None:
         store = self.get_invite_store(member.guild.id)
         before = self.invite_cache.get(
@@ -1834,11 +2232,14 @@ class YishiBot(commands.Bot):
         key = str(inviter.id)
         counts = store["counts"]
         counts[key] = int(counts.get(key, 0)) + 1
+        weekly_counts = store["weekly_counts"]
+        weekly_counts[key] = int(weekly_counts.get(key, 0)) + 1
         store["member_inviter_ids"][str(member.id)] = inviter.id
         self.save_invites()
         inviter_member = member.guild.get_member(inviter.id)
         if inviter_member is not None:
             await self.sync_member_invite_roles(inviter_member)
+            await self.sync_member_free_access(inviter_member)
         return inviter_member
 
     async def schedule_existing_giveaways(self) -> None:
@@ -1875,81 +2276,146 @@ class YishiBot(commands.Bot):
         for part in split_long_message(RULES_TEXT):
             await channel.send(part)
 
+    def get_ticket_destination_category(self, guild: discord.Guild, destination: str) -> discord.CategoryChannel | None:
+        config = self.get_guild_config(guild.id)
+        key_map = {
+            "helper": "ticket_helper_category_id",
+            "achat": "ticket_purchase_category_id",
+            "staff": "ticket_staff_category_id",
+        }
+        key = key_map.get(destination, "ticket_helper_category_id")
+        category = guild.get_channel(config.get(key)) if config.get(key) else None
+        return category if isinstance(category, discord.CategoryChannel) else None
+
+    async def apply_open_ticket_permissions(
+        self,
+        guild: discord.Guild,
+        channel: discord.TextChannel,
+        owner: discord.Member,
+    ) -> None:
+        config = self.get_guild_config(guild.id)
+        helper_role = guild.get_role(config["helper_role_id"]) if config["helper_role_id"] else None
+        trial_role = guild.get_role(config["trial_mod_role_id"]) if config["trial_mod_role_id"] else None
+        moderator_role = guild.get_role(config["moderator_role_id"]) if config["moderator_role_id"] else None
+        responsable_role = guild.get_role(config["responsable_role_id"]) if config["responsable_role_id"] else None
+        admin_role = guild.get_role(config["admin_role_id"]) if config["admin_role_id"] else None
+        founder_role = guild.get_role(config["founder_role_id"]) if config["founder_role_id"] else None
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+
+        await channel.set_permissions(guild.default_role, view_channel=False)
+        await channel.set_permissions(
+            owner,
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True,
+        )
+        for role in (helper_role, trial_role, moderator_role, responsable_role, admin_role, founder_role, archive_role, staff_role):
+            if role is None:
+                continue
+            await channel.set_permissions(
+                role,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=role.name
+                in {MODERATOR_ROLE_NAME, RESPONSABLE_ROLE_NAME, ADMIN_ROLE_NAME, FOUNDER_ROLE_NAME, AUTO_STAFF_ROLE_NAME, AUTO_ARCHIVE_ROLE_NAME},
+            )
+
+    async def apply_claimed_ticket_permissions(
+        self,
+        guild: discord.Guild,
+        channel: discord.TextChannel,
+        owner: discord.Member | None,
+        claimer: discord.Member,
+    ) -> None:
+        config = self.get_guild_config(guild.id)
+        helper_role = guild.get_role(config["helper_role_id"]) if config["helper_role_id"] else None
+        trial_role = guild.get_role(config["trial_mod_role_id"]) if config["trial_mod_role_id"] else None
+        moderator_role = guild.get_role(config["moderator_role_id"]) if config["moderator_role_id"] else None
+        responsable_role = guild.get_role(config["responsable_role_id"]) if config["responsable_role_id"] else None
+        admin_role = guild.get_role(config["admin_role_id"]) if config["admin_role_id"] else None
+        founder_role = guild.get_role(config["founder_role_id"]) if config["founder_role_id"] else None
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+
+        await channel.set_permissions(guild.default_role, view_channel=False)
+        if owner is not None:
+            await channel.set_permissions(
+                owner,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            )
+        await channel.set_permissions(
+            claimer,
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            manage_messages=True,
+        )
+        for role in (helper_role, trial_role):
+            if role is not None:
+                await channel.set_permissions(role, view_channel=False, send_messages=False, read_message_history=False)
+        for role in (moderator_role, responsable_role, admin_role, founder_role, archive_role, staff_role):
+            if role is None:
+                continue
+            await channel.set_permissions(
+                role,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            )
+
     async def create_ticket(self, interaction: discord.Interaction, ticket_type: str) -> None:
         guild = interaction.guild
         user = interaction.user
         if guild is None or not isinstance(user, discord.Member):
-            await interaction.response.send_message(
-                "Impossible de créer un ticket ici.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("Impossible de cr?er un ticket ici.", ephemeral=True)
             return
 
         lock_key = (guild.id, user.id)
         if lock_key in self.pending_ticket_creations:
             await interaction.response.send_message(
-                "Ton ticket est déjà en cours de création, attends une seconde.",
+                "Ton ticket est d?j? en cours de cr?ation, attends une seconde.",
+                ephemeral=True,
+            )
+            return
+
+        helper_category = self.get_ticket_destination_category(guild, "helper")
+        archive_category = guild.get_channel(self.get_guild_config(guild.id)["archive_category_id"])
+        if not isinstance(helper_category, discord.CategoryChannel) or not isinstance(archive_category, discord.CategoryChannel):
+            await interaction.response.send_message(
+                "Le syst?me de tickets n'est pas encore configur? correctement.",
+                ephemeral=True,
+            )
+            return
+
+        if len(self.get_open_tickets_for_user(guild.id, user.id)) >= 1:
+            await interaction.response.send_message(
+                "Tu as d?j? un ticket ouvert. Ferme-le avant d'en cr?er un autre.",
                 ephemeral=True,
             )
             return
 
         config = self.get_guild_config(guild.id)
-        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
-        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
-        ticket_category = guild.get_channel(config["ticket_category_id"]) if config["ticket_category_id"] else None
-        archive_category = guild.get_channel(config["archive_category_id"]) if config["archive_category_id"] else None
-
-        if (
-            staff_role is None
-            or archive_role is None
-            or not isinstance(ticket_category, discord.CategoryChannel)
-            or not isinstance(archive_category, discord.CategoryChannel)
-        ):
-            await interaction.response.send_message(
-                "Le système de tickets n'est pas encore configuré correctement.",
-                ephemeral=True,
-            )
-            return
-
-        if len(self.get_open_tickets_for_user(guild.id, user.id)) >= 3:
-            await interaction.response.send_message(
-                "Tu as déjà 3 tickets ouverts. Ferme-en un avant d'en créer un autre.",
-                ephemeral=True,
-            )
-            return
+        helper_role = guild.get_role(config["helper_role_id"]) if config["helper_role_id"] else None
+        trial_role = guild.get_role(config["trial_mod_role_id"]) if config["trial_mod_role_id"] else None
 
         self.pending_ticket_creations.add(lock_key)
         try:
             number = self.get_next_ticket_number(guild.id)
-            channel_name = f"{number}-{slugify_name(user.display_name)}"
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                user: discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    attach_files=True,
-                    embed_links=True,
-                ),
-                staff_role: discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    manage_messages=True,
-                ),
-                archive_role: discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    manage_messages=True,
-                ),
-            }
             channel = await guild.create_text_channel(
-                name=channel_name,
-                category=ticket_category,
-                overwrites=overwrites,
-                reason=f"Création du ticket {ticket_type} par {user}",
+                name=f"{number}-{slugify_name(user.display_name)}",
+                category=helper_category,
+                reason=f"Cr?ation du ticket {ticket_type} par {user}",
             )
+            await self.apply_open_ticket_permissions(guild, channel, user)
 
             store = self.get_ticket_store(guild.id)
             store["channels"][str(channel.id)] = {
@@ -1958,42 +2424,60 @@ class YishiBot(commands.Bot):
                 "status": "open",
                 "type": ticket_type,
                 "number": number,
+                "destination": "helper",
+                "assigned_helper_id": None,
+                "claimed_at": None,
+                "transferred_by": None,
+                "transfer_reason": None,
+                "transfer_summary": None,
+                "claimed_messages": 0,
                 "last_activity_at": self.iso_now(),
                 "recall_sent_at": None,
             }
             self.save_tickets()
 
             embed = discord.Embed(
-                title=f"Ticket {TICKET_TYPES[ticket_type]['label']}",
+                title="Ticket Renseignement",
                 description=(
-                    f"{user.mention}, ton ticket a été créé avec succès.\n"
-                    "Explique ta demande avec le plus de détails possible."
+                    f"{user.mention}, ton ticket a ?t? cr?? avec succ?s.\n"
+                    "Explique ta demande avec le plus de d?tails possible.\n"
+                    "Un helper te r?pondra puis transf?rera le ticket si besoin."
                 ),
                 color=discord.Color.green(),
             )
-            embed.add_field(name="Catégorie", value=TICKET_TYPES[ticket_type]["label"], inline=True)
-            embed.add_field(name="Numéro", value=str(number), inline=True)
+            embed.add_field(name="Cat?gorie", value=TICKET_TYPES[ticket_type]["label"], inline=True)
+            embed.add_field(name="Num?ro", value=str(number), inline=True)
             await channel.send(
-                content=f"{user.mention} {staff_role.mention}",
+                content=" ".join(
+                    mention
+                    for mention in (
+                        user.mention,
+                        helper_role.mention if helper_role else None,
+                        trial_role.mention if trial_role else None,
+                    )
+                    if mention
+                ),
                 embed=embed,
                 view=TicketCloseView(self),
             )
             await self.log_event(
                 guild,
-                "🎫 Ticket ouvert",
+                "?? Ticket ouvert",
                 f"{user.mention} a ouvert un ticket **{TICKET_TYPES[ticket_type]['label']}**.",
                 discord.Color.green(),
                 thumbnail_url=user.display_avatar.url,
                 fields=[
                     ("Salon", channel.mention, True),
-                    ("Numéro", str(number), True),
+                    ("Num?ro", str(number), True),
+                    ("Destination", "Helpers", True),
                 ],
             )
-            await interaction.response.defer(ephemeral=True, thinking=False)
+            await interaction.response.send_message(f"Ton ticket a ?t? cr?? : {channel.mention}", ephemeral=True)
         finally:
             self.pending_ticket_creations.discard(lock_key)
 
     async def archive_ticket(self, interaction: discord.Interaction) -> None:
+
         guild = interaction.guild
         channel = interaction.channel
         user = interaction.user
@@ -2032,9 +2516,7 @@ class YishiBot(commands.Bot):
             )
             return
 
-        is_staff = staff_role is not None and staff_role in user.roles
-        is_archive_staff = archive_role in user.roles
-        if not (user.id == guild.owner_id or is_staff or is_archive_staff):
+        if not self.can_close_tickets(user):
             await interaction.response.send_message(
                 "Seul le staff peut fermer ce ticket.",
                 ephemeral=True,
@@ -2081,6 +2563,8 @@ class YishiBot(commands.Bot):
 
         ticket["status"] = "archived"
         ticket["closed_by"] = user.id
+        if ticket.get("assigned_helper_id"):
+            self.add_staff_points(guild.id, int(ticket["assigned_helper_id"]), 2)
         self.save_tickets()
 
         embed = discord.Embed(
@@ -2491,6 +2975,7 @@ class YishiBot(commands.Bot):
         await self.cache_invites(guild)
         self.initialize_invite_role_baseline(guild.id)
         await self.sync_all_invite_roles(guild)
+        await self.sync_all_free_access_roles(guild)
         self.tree.clear_commands(guild=guild)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)

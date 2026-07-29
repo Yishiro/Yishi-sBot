@@ -6,25 +6,10 @@ import discord
 
 
 TICKET_TYPES = {
-    "achat": {
-        "label": "Buy",
-        "emoji": "💳",
-        "description": "Create a buy ticket",
-    },
-    "exchange": {
-        "label": "Exchange",
-        "emoji": "♻️",
-        "description": "Create a exchange ticket",
-    },
-    "help": {
-        "label": "Need Help?",
-        "emoji": "🚨",
-        "description": "Create a need help? ticket",
-    },
-    "partnership": {
-        "label": "Partnerships",
-        "emoji": "🤝",
-        "description": "Create a partnerships ticket",
+    "renseignement": {
+        "label": "Renseignement",
+        "emoji": "🎫",
+        "description": "Ouvre un ticket de renseignement",
     },
 }
 
@@ -36,17 +21,28 @@ def slugify_name(name: str) -> str:
 
 
 def build_ticket_panel_embed() -> discord.Embed:
-    return discord.Embed(
-        title="Yishi's Shop Tickets",
+    embed = discord.Embed(
+        title="Yishi's Shop Support Center",
         description=(
-            "Bienvenue sur Yishi's Shop.\n\n"
-            "Sélectionnez la catégorie qui correspond le mieux à votre demande "
-            "afin que le staff puisse vous répondre rapidement.\n"
-            "Merci de rester clair, poli et patient pour faciliter le traitement de votre ticket.\n\n"
-            "*Notre staff vous répondra dès que possible.*"
+            "Bienvenue sur le support de Yishi's Shop.\n\n"
+            "Ouvre un ticket de renseignement si tu veux connaître un prix, poser une question "
+            "ou être redirigé vers un ticket achat par le staff.\n\n"
+            "Les helpers traitent d'abord les demandes, puis transfèrent au bon pôle si nécessaire."
         ),
         color=discord.Color.blurple(),
     )
+    embed.add_field(
+        name="Comment ça marche",
+        value=(
+            "• Ouvre un ticket de renseignement\n"
+            "• Explique clairement ta demande\n"
+            "• Un helper te répondra\n"
+            "• Si besoin, ton ticket sera transféré vers le staff ou les achats"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Un seul type de ticket à l'ouverture • Le staff oriente ensuite")
+    return embed
 
 
 def build_custom_ticket_panel_embed(
@@ -58,12 +54,9 @@ def build_custom_ticket_panel_embed(
         intro_text.strip()
         if intro_text
         else (
-            "## Supra's Shop Support Center\n"
             "Welcome to our official support system.\n\n"
-            "## How It Works\n"
-            "» Select the appropriate category from the dropdown menu below\n"
-            "» Our team will respond as soon as possible\n"
-            "» Please read #📌・Tos before buying"
+            "Open a ticket to ask for prices, product information or support.\n"
+            "Our helpers will answer first and transfer your ticket if needed."
         )
     )
 
@@ -74,5 +67,5 @@ def build_custom_ticket_panel_embed(
     )
     if image_url:
         embed.set_image(url=image_url)
-    embed.set_footer(text="Supra's Shop • Support Center")
+    embed.set_footer(text="Support Center • Ticket routing handled by staff")
     return embed

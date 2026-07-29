@@ -45,22 +45,42 @@ def default_config() -> dict[str, Any]:
     return {
         "staff_role_id": None,
         "archive_role_id": None,
+        "helper_role_id": None,
+        "trial_mod_role_id": None,
+        "moderator_role_id": None,
+        "responsable_role_id": None,
+        "admin_role_id": None,
+        "founder_role_id": None,
+        "free_access_role_id": None,
         "ticket_category_id": None,
+        "ticket_helper_category_id": None,
+        "ticket_purchase_category_id": None,
+        "ticket_staff_category_id": None,
         "archive_category_id": None,
+        "free_category_id": None,
+        "voice_category_id": None,
+        "voice_creator_channel_id": None,
         "welcome_channel_id": None,
+        "rules_channel_id": None,
+        "announcements_channel_id": None,
+        "shop_channel_id": None,
         "logs_channel_id": None,
         "transcript_logs_channel_id": None,
         "gacha_spin_channel_id": None,
         "gacha_winner_channel_id": None,
         "gacha_logs_channel_id": None,
+        "giveaways_channel_id": None,
         "sales_channel_id": None,
         "sales_category_id": None,
         "sales_review_channel_id": None,
         "sales_info_message_id": None,
         "promo_channel_id": None,
+        "staff_prices_channel_id": None,
+        "free_netflix_channel_id": None,
+        "free_crunchyroll_channel_id": None,
+        "ticket_panel_message_id": None,
         "rules_role_id": None,
         "rules_message_id": None,
-        "rules_channel_id": None,
     }
 
 def can_moderate(
@@ -111,6 +131,12 @@ def default_promo_store() -> dict[str, Any]:
         "promotions": [],
         "next_id": 1,
         "last_auto_post_week": None,
+    }
+
+def default_level_store() -> dict[str, Any]:
+    return {
+        "members": {},
+        "voice_sessions": {},
     }
 
 def merge_missing_defaults(target: dict[str, Any], defaults: dict[str, Any]) -> bool:

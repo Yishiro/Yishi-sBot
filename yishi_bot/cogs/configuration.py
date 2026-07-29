@@ -36,6 +36,83 @@ class ConfigurationCog(commands.Cog):
     def __init__(self, bot: YishiBot) -> None:
         self.bot = bot
 
+    @app_commands.command(name="setup", description="Reconstruit automatiquement le serveur Yishi's Shop")
+    @app_commands.default_permissions(manage_guild=True)
+    async def setup_server(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        summary = await self.bot.rebuild_server(interaction.guild)
+        await interaction.followup.send(
+            (
+                "Configuration terminée.\n"
+                f"Rôles préparés : {summary['roles']}\n"
+                f"Salons conservés/créés : {summary['channels']}\n"
+                f"Catégories préparées : {summary['categories']}"
+            ),
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="free_post", description="Publie un compte free Netflix ou Crunchyroll")
+    @app_commands.describe(service="Service concerné", contenu="Texte à publier dans le salon free")
+    async def free_post(
+        self,
+        interaction: discord.Interaction,
+        service: Literal["netflix", "crunchyroll"],
+        contenu: str,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        if not self.bot.is_helper_member(interaction.user):  # type: ignore[arg-type]
+            await interaction.response.send_message("Commande réservée au staff.", ephemeral=True)
+            return
+
+        config = self.bot.get_guild_config(interaction.guild.id)
+        key = "free_netflix_channel_id" if service == "netflix" else "free_crunchyroll_channel_id"
+        channel = interaction.guild.get_channel(config.get(key))
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("Le salon free correspondant n'est pas configuré.", ephemeral=True)
+            return
+
+        color = discord.Color.red() if service == "netflix" else discord.Color.orange()
+        embed = discord.Embed(
+            title=f"{service.title()} Free",
+            description=contenu,
+            color=color,
+        )
+        embed.set_footer(text=f"Publié par {interaction.user.display_name}")
+        await channel.send(embed=embed)
+        await interaction.response.send_message(f"Publication envoyée dans {channel.mention}.", ephemeral=True)
+
+    @app_commands.command(name="free_status", description="Affiche le statut weekly free d'un membre")
+    @app_commands.describe(membre="Membre à vérifier")
+    async def free_status(self, interaction: discord.Interaction, membre: discord.Member | None = None) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        target = membre or interaction.user
+        weekly = self.bot.get_weekly_invite_count(interaction.guild.id, target.id)
+        total = self.bot.get_invite_count(interaction.guild.id, target.id)
+        embed = discord.Embed(title=f"Statut free • {target.display_name}", color=discord.Color.teal())
+        embed.add_field(name="Invitations semaine", value=str(weekly), inline=True)
+        embed.add_field(name="Invitations totales", value=str(total), inline=True)
+        embed.add_field(name="Accès free", value="Oui" if weekly >= 2 else "Non", inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="free_refresh", description="Met à jour les accès free de tout le serveur")
+    async def free_refresh(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        if not self.bot.is_helper_member(interaction.user):  # type: ignore[arg-type]
+            await interaction.response.send_message("Commande réservée au staff.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        await self.bot.sync_all_free_access_roles(interaction.guild)
+        await interaction.followup.send("Accès free mis à jour.", ephemeral=True)
+
     @app_commands.command(name="config_role_staff", description="Définit le rôle staff pour les tickets ouverts")
     @app_commands.describe(role="Rôle staff")
     @app_commands.default_permissions(manage_guild=True)
