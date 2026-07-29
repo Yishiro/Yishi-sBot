@@ -516,7 +516,7 @@ class YishiBot(commands.Bot):
         return level
 
     def get_member_grade(self, level: int) -> str:
-        grade = "Visitor"
+        grade = "Novice"
         for name, required_level in XP_GRADE_LEVELS.items():
             if level >= required_level:
                 grade = name
@@ -617,15 +617,15 @@ class YishiBot(commands.Bot):
     def can_manage_voice_feature(self, member: discord.Member, feature: str) -> bool:
         level = self.get_member_level_stats(member.guild.id, member.id)["level"]
         requirements = {
-            "lock": XP_GRADE_LEVELS["Regular"],
-            "unlock": XP_GRADE_LEVELS["Regular"],
-            "limit": XP_GRADE_LEVELS["Regular"],
-            "invite": XP_GRADE_LEVELS["Trusted"],
-            "kick": XP_GRADE_LEVELS["Trusted"],
+            "lock": XP_GRADE_LEVELS["Actif"],
+            "unlock": XP_GRADE_LEVELS["Actif"],
+            "limit": XP_GRADE_LEVELS["Actif"],
+            "invite": XP_GRADE_LEVELS["Confirmé"],
+            "kick": XP_GRADE_LEVELS["Confirmé"],
             "rename": XP_GRADE_LEVELS["Elite"],
-            "transfer": XP_GRADE_LEVELS["Legend"],
-            "stream": XP_GRADE_LEVELS["Regular"],
-            "camera": XP_GRADE_LEVELS["Trusted"],
+            "transfer": XP_GRADE_LEVELS["Légende"],
+            "stream": XP_GRADE_LEVELS["Actif"],
+            "camera": XP_GRADE_LEVELS["Confirmé"],
         }
         return level >= requirements.get(feature, 999)
 
@@ -789,13 +789,13 @@ class YishiBot(commands.Bot):
 
     def get_level_theme(self, grade: str) -> dict[str, tuple[int, int, int] | str]:
         themes = {
-            "Visitor": {"accent": (220, 220, 220), "bg": (18, 24, 35)},
-            "Regular": {"accent": (52, 152, 255), "bg": (12, 25, 48)},
-            "Trusted": {"accent": (63, 217, 157), "bg": (8, 36, 30)},
+            "Novice": {"accent": (220, 220, 220), "bg": (18, 24, 35)},
+            "Actif": {"accent": (52, 152, 255), "bg": (12, 25, 48)},
+            "Confirmé": {"accent": (63, 217, 157), "bg": (8, 36, 30)},
             "Elite": {"accent": (174, 82, 255), "bg": (24, 12, 44)},
-            "Legend": {"accent": (255, 198, 64), "bg": (28, 18, 45)},
+            "Légende": {"accent": (255, 198, 64), "bg": (28, 18, 45)},
         }
-        return themes.get(grade, themes["Visitor"])
+        return themes.get(grade, themes["Novice"])
 
     def render_level_card(self, member: discord.Member) -> str:
         from PIL import Image, ImageDraw, ImageFont
