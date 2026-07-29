@@ -46,6 +46,14 @@ class ConfigurationCog(commands.Cog):
     def __init__(self, bot: YishiBot) -> None:
         self.bot = bot
 
+    def can_manage_role(self, guild: discord.Guild, role: discord.Role) -> bool:
+        me = guild.me
+        if me is None:
+            return False
+        if role.is_default() or role.managed:
+            return False
+        return me.guild_permissions.manage_roles and me.top_role > role
+
     @app_commands.command(name="roles_fix", description="Corrige automatiquement les rôles staff, niveaux et invitations")
     @app_commands.default_permissions(manage_guild=True)
     async def roles_fix(self, interaction: discord.Interaction) -> None:
@@ -81,6 +89,7 @@ class ConfigurationCog(commands.Cog):
         }
 
         created_or_fixed: list[str] = []
+        blocked_roles: list[str] = []
 
         for config_key, target_name in canonical_roles.items():
             role = guild.get_role(config.get(config_key)) if config.get(config_key) else None
