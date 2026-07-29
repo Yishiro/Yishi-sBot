@@ -69,6 +69,8 @@ class EventsCog(commands.Cog):
             else member.guild.system_channel
         )
         inviter = await self.bot.track_member_invite(member)
+        await self.bot.sync_member_xp_role(member)
+        await self.bot.sync_member_free_access(member)
         if not isinstance(welcome_channel, discord.TextChannel):
             return
 
@@ -179,6 +181,7 @@ class EventsCog(commands.Cog):
         before: discord.VoiceState,
         after: discord.VoiceState,
     ) -> None:
+        await self.bot.handle_voice_state_change(member, before, after)
         if before.channel == after.channel:
             return
         if after.channel is not None:
@@ -205,8 +208,6 @@ class EventsCog(commands.Cog):
         if message.guild is None or message.author.bot or not isinstance(message.author, discord.Member):
             return
         self.bot.track_managed_channel_activity(message)
-        if self.bot.is_staff_member(message.author):
-            return
         if LINK_PATTERN.search(message.content):
             try:
                 await message.delete()
@@ -228,6 +229,12 @@ class EventsCog(commands.Cog):
                 await warning.delete()
             except discord.HTTPException:
                 pass
+            return
+
+        await self.bot.award_message_xp(message)
+
+        if self.bot.is_staff_member(message.author):
+            return
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:

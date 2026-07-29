@@ -70,6 +70,22 @@ XP_ROLE_NAMES = (
     "✦ Legend",
 )
 
+XP_GRADE_LEVELS = {
+    "Visitor": 1,
+    "Regular": 5,
+    "Trusted": 12,
+    "Elite": 20,
+    "Legend": 35,
+}
+
+XP_ROLE_BY_GRADE = {
+    "Visitor": "✦ Visitor",
+    "Regular": "✦ Regular",
+    "Trusted": "✦ Trusted",
+    "Elite": "✦ Elite",
+    "Legend": "✦ Legend",
+}
+
 SERVER_STRUCTURE = {
     "✦ ACCUEIL": (
         WELCOME_CHANNEL_NAME,

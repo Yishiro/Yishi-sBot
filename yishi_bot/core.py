@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import io
 import random
+import tempfile
 import traceback
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -34,6 +35,7 @@ from yishi_bot.cogs.general import GeneralCog
 from yishi_bot.cogs.giveaways import GiveawaysCog
 from yishi_bot.cogs.moderation import ModerationCog
 from yishi_bot.cogs.promotions import PromotionsCog
+from yishi_bot.cogs.progression import ProgressionCog
 from yishi_bot.cogs.sales import SalesCog
 from yishi_bot.cogs.tickets import TicketsCog
 from yishi_bot.constants import *
@@ -78,6 +80,7 @@ class YishiBot(commands.Bot):
         self.giveaway_tasks: dict[str, asyncio.Task] = {}
         self.pending_ticket_creations: set[tuple[int, int]] = set()
         self.pending_gacha_spins: set[tuple[int, int]] = set()
+        self.message_xp_cooldowns: dict[tuple[int, int], datetime] = {}
         self.background_task: asyncio.Task | None = None
         self.paris_tz = ZoneInfo("Europe/Paris")
         self.sync_done = False
@@ -97,6 +100,7 @@ class YishiBot(commands.Bot):
         await self.add_cog(GachaCog(self))
         await self.add_cog(ModerationCog(self))
         await self.add_cog(PromotionsCog(self))
+        await self.add_cog(ProgressionCog(self))
         await self.add_cog(SalesCog(self))
         await self.add_cog(TicketsCog(self))
         await self.add_cog(GiveawaysCog(self))
@@ -225,6 +229,7 @@ class YishiBot(commands.Bot):
             self.level_data[key] = {
                 "members": {},
                 "voice_sessions": {},
+                "temp_channels": {},
             }
             self.save_levels()
         elif merge_missing_defaults(self.level_data[key], default_level_store()):
@@ -485,6 +490,363 @@ class YishiBot(commands.Bot):
         store[key] = int(store.get(key, 0)) + amount
         self.save_tickets()
         return int(store[key])
+
+    def get_member_level_entry(self, guild_id: int, user_id: int) -> dict[str, Any]:
+        members = self.get_level_store(guild_id)["members"]
+        key = str(user_id)
+        if key not in members:
+            members[key] = {
+                "xp": 0,
+                "message_count": 0,
+                "voice_seconds": 0,
+                "last_message_xp_at": None,
+            }
+            self.save_levels()
+        return members[key]
+
+    def xp_for_level(self, level: int) -> int:
+        if level <= 0:
+            return 0
+        return 100 * level * level
+
+    def get_level_from_xp(self, xp: int) -> int:
+        level = 0
+        while xp >= self.xp_for_level(level + 1):
+            level += 1
+        return level
+
+    def get_member_grade(self, level: int) -> str:
+        grade = "Visitor"
+        for name, required_level in XP_GRADE_LEVELS.items():
+            if level >= required_level:
+                grade = name
+        return grade
+
+    def get_member_level_stats(self, guild_id: int, user_id: int) -> dict[str, Any]:
+        entry = self.get_member_level_entry(guild_id, user_id)
+        total_xp = int(entry.get("xp", 0))
+        level = self.get_level_from_xp(total_xp)
+        current_level_floor = self.xp_for_level(level)
+        next_level_total = self.xp_for_level(level + 1)
+        current_xp = total_xp - current_level_floor
+        needed_xp = max(1, next_level_total - current_level_floor)
+        return {
+            "xp": total_xp,
+            "level": level,
+            "grade": self.get_member_grade(level),
+            "current_xp": current_xp,
+            "needed_xp": needed_xp,
+            "message_count": int(entry.get("message_count", 0)),
+            "voice_seconds": int(entry.get("voice_seconds", 0)),
+        }
+
+    async def sync_member_xp_role(self, member: discord.Member) -> None:
+        stats = self.get_member_level_stats(member.guild.id, member.id)
+        grade = stats["grade"]
+        role_name = XP_ROLE_BY_GRADE[grade]
+        role_to_add = discord.utils.get(member.guild.roles, name=role_name)
+        if role_to_add is None:
+            return
+        xp_roles = [role for role in member.guild.roles if role.name in XP_ROLE_NAMES]
+        roles_to_remove = [role for role in member.roles if role in xp_roles and role != role_to_add]
+        if roles_to_remove:
+            await member.remove_roles(*roles_to_remove, reason="Mise à jour du grade XP")
+        if role_to_add not in member.roles:
+            await member.add_roles(role_to_add, reason="Mise à jour du grade XP")
+
+    async def sync_all_xp_roles(self, guild: discord.Guild) -> None:
+        for member in guild.members:
+            if member.bot:
+                continue
+            await self.sync_member_xp_role(member)
+
+    async def add_member_xp(self, member: discord.Member, amount: int, *, count_message: bool = False, voice_seconds: int = 0) -> None:
+        entry = self.get_member_level_entry(member.guild.id, member.id)
+        before_level = self.get_level_from_xp(int(entry.get("xp", 0)))
+        entry["xp"] = int(entry.get("xp", 0)) + amount
+        if count_message:
+            entry["message_count"] = int(entry.get("message_count", 0)) + 1
+        if voice_seconds:
+            entry["voice_seconds"] = int(entry.get("voice_seconds", 0)) + voice_seconds
+        self.save_levels()
+        after_level = self.get_level_from_xp(int(entry.get("xp", 0)))
+        await self.sync_member_xp_role(member)
+        if after_level > before_level:
+            await self.log_event(
+                member.guild,
+                "Niveau gagné",
+                f"{member.mention} est passé niveau **{after_level}**.",
+                discord.Color.blurple(),
+                thumbnail_url=member.display_avatar.url,
+            )
+
+    async def award_message_xp(self, message: discord.Message) -> None:
+        if message.guild is None or not isinstance(message.author, discord.Member):
+            return
+        if len(message.content.strip()) < 4:
+            return
+        key = (message.guild.id, message.author.id)
+        now = self.utcnow()
+        last_award = self.message_xp_cooldowns.get(key)
+        if last_award is not None and now - last_award < timedelta(seconds=60):
+            return
+        self.message_xp_cooldowns[key] = now
+        await self.add_member_xp(message.author, 20, count_message=True)
+
+    def get_level_ranking(self, guild_id: int) -> list[tuple[int, int]]:
+        members = self.get_level_store(guild_id)["members"]
+        ranking = []
+        for member_id, entry in members.items():
+            ranking.append((int(member_id), int(entry.get("xp", 0))))
+        ranking.sort(key=lambda item: item[1], reverse=True)
+        return ranking
+
+    def get_member_rank_position(self, guild_id: int, user_id: int) -> int:
+        ranking = self.get_level_ranking(guild_id)
+        for index, (member_id, _) in enumerate(ranking, start=1):
+            if member_id == user_id:
+                return index
+        return max(1, len(ranking))
+
+    def get_temp_voice_store(self, guild_id: int) -> dict[str, Any]:
+        return self.get_level_store(guild_id)["temp_channels"]
+
+    def get_temp_voice_entry(self, guild_id: int, channel_id: int) -> dict[str, Any] | None:
+        return self.get_temp_voice_store(guild_id).get(str(channel_id))
+
+    def can_manage_voice_feature(self, member: discord.Member, feature: str) -> bool:
+        level = self.get_member_level_stats(member.guild.id, member.id)["level"]
+        requirements = {
+            "lock": XP_GRADE_LEVELS["Regular"],
+            "unlock": XP_GRADE_LEVELS["Regular"],
+            "limit": XP_GRADE_LEVELS["Regular"],
+            "invite": XP_GRADE_LEVELS["Trusted"],
+            "kick": XP_GRADE_LEVELS["Trusted"],
+            "rename": XP_GRADE_LEVELS["Elite"],
+            "transfer": XP_GRADE_LEVELS["Legend"],
+            "stream": XP_GRADE_LEVELS["Regular"],
+            "camera": XP_GRADE_LEVELS["Trusted"],
+        }
+        return level >= requirements.get(feature, 999)
+
+    async def handle_voice_state_change(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ) -> None:
+        config = self.get_guild_config(member.guild.id)
+        creator_channel_id = config.get("voice_creator_channel_id")
+
+        if before.channel is not None:
+            entry = self.get_temp_voice_entry(member.guild.id, before.channel.id)
+            if entry is not None:
+                entry.get("join_order", {}).pop(str(member.id), None)
+                if len(before.channel.members) == 0:
+                    self.get_temp_voice_store(member.guild.id).pop(str(before.channel.id), None)
+                    self.save_levels()
+                    with contextlib.suppress(discord.HTTPException):
+                        await before.channel.delete(reason="Salon vocal temporaire vide")
+                else:
+                    current_owner_id = int(entry.get("owner_id", 0))
+                    if current_owner_id == member.id:
+                        new_owner = min(
+                            before.channel.members,
+                            key=lambda m: self.parse_iso_datetime(entry.get("join_order", {}).get(str(m.id))) or self.utcnow(),
+                        )
+                        entry["owner_id"] = new_owner.id
+                        self.save_levels()
+                        await self.update_temp_voice_owner_permissions(before.channel, new_owner)
+
+        if after.channel is not None and creator_channel_id and after.channel.id == creator_channel_id:
+            category = after.channel.category
+            new_channel = await member.guild.create_voice_channel(
+                name=f"🔊・Vocal de {member.display_name}",
+                category=category,
+                reason=f"Salon vocal temporaire pour {member}",
+            )
+            await member.move_to(new_channel)
+            self.get_temp_voice_store(member.guild.id)[str(new_channel.id)] = {
+                "owner_id": member.id,
+                "join_order": {str(member.id): self.iso_now()},
+                "locked": False,
+            }
+            self.save_levels()
+            await self.update_temp_voice_owner_permissions(new_channel, member)
+            return
+
+        if after.channel is not None:
+            entry = self.get_temp_voice_entry(member.guild.id, after.channel.id)
+            if entry is not None:
+                entry.setdefault("join_order", {})[str(member.id)] = self.iso_now()
+                self.save_levels()
+
+    async def update_temp_voice_owner_permissions(self, channel: discord.VoiceChannel, owner: discord.Member) -> None:
+        allow_stream = self.can_manage_voice_feature(owner, "stream")
+        await channel.set_permissions(
+            owner,
+            view_channel=True,
+            connect=True,
+            speak=True,
+            stream=allow_stream,
+            use_voice_activation=True,
+            priority_speaker=False,
+        )
+
+    async def process_voice_xp(self) -> None:
+        for guild in self.guilds:
+            for channel in guild.voice_channels:
+                eligible_members = [
+                    member
+                    for member in channel.members
+                    if not member.bot and not (member.voice.self_deaf or member.voice.self_mute)
+                ]
+                if len(eligible_members) < 2:
+                    continue
+                for member in eligible_members:
+                    await self.add_member_xp(member, 5, voice_seconds=60)
+
+    def get_owned_temp_voice_channel(self, member: discord.Member) -> discord.VoiceChannel | None:
+        voice = member.voice
+        if voice is None or not isinstance(voice.channel, discord.VoiceChannel):
+            return None
+        entry = self.get_temp_voice_entry(member.guild.id, voice.channel.id)
+        if entry is None or int(entry.get("owner_id", 0)) != member.id:
+            return None
+        return voice.channel
+
+    async def lock_temp_voice(self, member: discord.Member) -> str:
+        channel = self.get_owned_temp_voice_channel(member)
+        if channel is None:
+            return "Tu dois être propriétaire d'un vocal temporaire pour faire ça."
+        await channel.set_permissions(member.guild.default_role, connect=False, view_channel=True)
+        entry = self.get_temp_voice_entry(member.guild.id, channel.id)
+        if entry is not None:
+            entry["locked"] = True
+            self.save_levels()
+        return "Vocal verrouillé."
+
+    async def unlock_temp_voice(self, member: discord.Member) -> str:
+        channel = self.get_owned_temp_voice_channel(member)
+        if channel is None:
+            return "Tu dois être propriétaire d'un vocal temporaire pour faire ça."
+        await channel.set_permissions(member.guild.default_role, connect=True, view_channel=True)
+        entry = self.get_temp_voice_entry(member.guild.id, channel.id)
+        if entry is not None:
+            entry["locked"] = False
+            self.save_levels()
+        return "Vocal déverrouillé."
+
+    async def set_temp_voice_limit(self, member: discord.Member, limit: int) -> str:
+        channel = self.get_owned_temp_voice_channel(member)
+        if channel is None:
+            return "Tu dois être propriétaire d'un vocal temporaire pour faire ça."
+        await channel.edit(user_limit=limit)
+        return f"Limite du vocal définie à {limit}."
+
+    async def rename_temp_voice(self, member: discord.Member, name: str) -> str:
+        channel = self.get_owned_temp_voice_channel(member)
+        if channel is None:
+            return "Tu dois être propriétaire d'un vocal temporaire pour faire ça."
+        await channel.edit(name=name[:100])
+        return "Nom du vocal mis à jour."
+
+    async def invite_to_temp_voice(self, member: discord.Member, target: discord.Member) -> str:
+        channel = self.get_owned_temp_voice_channel(member)
+        if channel is None:
+            return "Tu dois être propriétaire d'un vocal temporaire pour faire ça."
+        await channel.set_permissions(target, connect=True, view_channel=True)
+        return f"{target.mention} peut rejoindre ton vocal."
+
+    async def kick_from_temp_voice(self, member: discord.Member, target: discord.Member) -> str:
+        channel = self.get_owned_temp_voice_channel(member)
+        if channel is None:
+            return "Tu dois être propriétaire d'un vocal temporaire pour faire ça."
+        if target.voice is None or target.voice.channel != channel:
+            return "Ce membre n'est pas dans ton vocal."
+        await target.move_to(None)
+        await channel.set_permissions(target, connect=False)
+        return f"{target.mention} a été expulsé du vocal."
+
+    async def transfer_temp_voice(self, member: discord.Member, target: discord.Member) -> str:
+        channel = self.get_owned_temp_voice_channel(member)
+        if channel is None:
+            return "Tu dois être propriétaire d'un vocal temporaire pour faire ça."
+        if target.voice is None or target.voice.channel != channel:
+            return "Ce membre doit être dans ton vocal."
+        entry = self.get_temp_voice_entry(member.guild.id, channel.id)
+        if entry is None:
+            return "Ce vocal n'est pas géré par le bot."
+        entry["owner_id"] = target.id
+        self.save_levels()
+        await self.update_temp_voice_owner_permissions(channel, target)
+        return f"{target.mention} est maintenant propriétaire du vocal."
+
+    def format_voice_duration(self, seconds: int) -> str:
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        return f"{hours} h {minutes:02d} min"
+
+    def get_level_theme(self, grade: str) -> dict[str, tuple[int, int, int] | str]:
+        themes = {
+            "Visitor": {"accent": (220, 220, 220), "bg": (18, 24, 35)},
+            "Regular": {"accent": (52, 152, 255), "bg": (12, 25, 48)},
+            "Trusted": {"accent": (63, 217, 157), "bg": (8, 36, 30)},
+            "Elite": {"accent": (174, 82, 255), "bg": (24, 12, 44)},
+            "Legend": {"accent": (255, 198, 64), "bg": (28, 18, 45)},
+        }
+        return themes.get(grade, themes["Visitor"])
+
+    def render_level_card(self, member: discord.Member) -> str:
+        from PIL import Image, ImageDraw, ImageFont
+
+        stats = self.get_member_level_stats(member.guild.id, member.id)
+        rank = self.get_member_rank_position(member.guild.id, member.id)
+        theme = self.get_level_theme(stats["grade"])
+        accent = theme["accent"]
+        bg = theme["bg"]
+
+        img = Image.new("RGB", (1100, 420), tuple(bg))
+        draw = ImageDraw.Draw(img)
+
+        try:
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 52)
+            grade_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+            text_font = ImageFont.truetype("DejaVuSans.ttf", 28)
+            small_font = ImageFont.truetype("DejaVuSans.ttf", 22)
+        except OSError:
+            title_font = ImageFont.load_default()
+            grade_font = ImageFont.load_default()
+            text_font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
+
+        draw.rounded_rectangle((10, 10, 1090, 410), radius=28, outline=tuple(accent), width=4, fill=tuple(bg))
+        draw.ellipse((36, 60, 336, 360), fill=tuple(accent))
+        draw.ellipse((70, 94, 302, 326), fill=(24, 28, 40))
+        draw.text((153, 170), stats["grade"][0], font=title_font, anchor="mm", fill=tuple(accent))
+
+        draw.text((390, 55), member.display_name, font=title_font, fill=(245, 247, 250))
+        draw.text((390, 120), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=tuple(accent))
+
+        bar_x1, bar_y1, bar_x2, bar_y2 = 390, 185, 1000, 225
+        draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=20, fill=(36, 47, 66))
+        ratio = max(0.0, min(1.0, stats["current_xp"] / max(1, stats["needed_xp"])))
+        fill_x = int(bar_x1 + (bar_x2 - bar_x1) * ratio)
+        draw.rounded_rectangle((bar_x1, bar_y1, fill_x, bar_y2), radius=20, fill=tuple(accent))
+        draw.text((390, 238), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=small_font, fill=(220, 226, 235))
+
+        draw.text((390, 292), "XP TOTAL", font=small_font, fill=(170, 180, 195))
+        draw.text((390, 326), f"{stats['xp']:,}", font=text_font, fill=(245, 247, 250))
+        draw.text((610, 292), "MESSAGES", font=small_font, fill=(170, 180, 195))
+        draw.text((610, 326), str(stats["message_count"]), font=text_font, fill=(245, 247, 250))
+        draw.text((825, 292), "TEMPS VOCAL", font=small_font, fill=(170, 180, 195))
+        draw.text((825, 326), self.format_voice_duration(stats["voice_seconds"]), font=text_font, fill=(245, 247, 250))
+        draw.text((390, 372), f"CLASSEMENT  #{rank}", font=grade_font, fill=(245, 247, 250))
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        tmp.close()
+        img.save(tmp.name)
+        return tmp.name
 
     def get_gacha_inventory(self, user_id: int) -> dict[str, int]:
         key = str(user_id)
@@ -1968,7 +2330,7 @@ class YishiBot(commands.Bot):
 
     async def process_weekly_free_access_reset(self) -> None:
         now_paris = self.utcnow().astimezone(self.paris_tz)
-        if now_paris.weekday() != 0 or now_paris.hour != 0:
+        if now_paris.weekday() != FREE_RESET_WEEKDAY or now_paris.hour != FREE_RESET_HOUR or now_paris.minute < FREE_RESET_MINUTE:
             return
 
         current_week_key = now_paris.strftime("%G-W%V")
@@ -1989,9 +2351,10 @@ class YishiBot(commands.Bot):
                 await self.process_sale_recalls()
                 await self.process_weekly_promotions()
                 await self.process_weekly_free_access_reset()
+                await self.process_voice_xp()
             except Exception:
                 traceback.print_exc()
-            await asyncio.sleep(300)
+            await asyncio.sleep(60)
 
     async def ensure_ticket_config(self, guild: discord.Guild) -> None:
         config = self.get_guild_config(guild.id)
@@ -2976,6 +3339,7 @@ class YishiBot(commands.Bot):
         self.initialize_invite_role_baseline(guild.id)
         await self.sync_all_invite_roles(guild)
         await self.sync_all_free_access_roles(guild)
+        await self.sync_all_xp_roles(guild)
         self.tree.clear_commands(guild=guild)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)

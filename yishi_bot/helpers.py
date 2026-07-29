@@ -137,6 +137,7 @@ def default_level_store() -> dict[str, Any]:
     return {
         "members": {},
         "voice_sessions": {},
+        "temp_channels": {},
     }
 
 def merge_missing_defaults(target: dict[str, Any], defaults: dict[str, Any]) -> bool:
