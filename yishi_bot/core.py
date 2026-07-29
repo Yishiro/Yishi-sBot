@@ -1110,29 +1110,92 @@ class YishiBot(commands.Bot):
         embed.set_footer(text="Yishi's Shop • Ventes sécurisées")
         return embed
 
-    async def ensure_sales_rules_message(self, guild: discord.Guild, sales_channel: discord.TextChannel) -> discord.Message | None:
-        config = self.get_guild_config(guild.id)
-        message_id = config.get("sales_info_message_id")
-        embed = self.build_sales_rules_embed()
+    async def fetch_managed_message(
+        self,
+        channel: discord.TextChannel,
+        message_id: int | None,
+    ) -> discord.Message | None:
+        if not message_id:
+            return None
+        try:
+            return await channel.fetch_message(int(message_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+            return None
 
-        existing_message: discord.Message | None = None
-        if message_id:
-            try:
-                existing_message = await sales_channel.fetch_message(int(message_id))
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
-                existing_message = None
+    async def cleanup_duplicate_managed_messages(
+        self,
+        channel: discord.TextChannel,
+        keep_message_id: int,
+        *,
+        title: str | None = None,
+    ) -> None:
+        if self.user is None:
+            return
+        with contextlib.suppress(discord.HTTPException):
+            async for message in channel.history(limit=25):
+                if message.id == keep_message_id or message.author.id != self.user.id:
+                    continue
+                if title is not None:
+                    if not message.embeds or message.embeds[0].title != title:
+                        continue
+                await message.delete()
+
+    async def ensure_managed_embed_message(
+        self,
+        guild: discord.Guild,
+        channel: discord.TextChannel,
+        config_key: str,
+        embed: discord.Embed,
+        *,
+        view: discord.ui.View | None = None,
+    ) -> discord.Message | None:
+        config = self.get_guild_config(guild.id)
+        existing_message = await self.fetch_managed_message(channel, config.get(config_key))
 
         try:
             if existing_message is not None:
-                await existing_message.edit(embed=embed, content=None)
+                await existing_message.edit(content=None, embed=embed, view=view)
+                await self.cleanup_duplicate_managed_messages(channel, existing_message.id, title=embed.title)
                 return existing_message
 
-            info_message = await sales_channel.send(embed=embed)
-            config["sales_info_message_id"] = info_message.id
+            managed_message = await channel.send(embed=embed, view=view)
+            config[config_key] = managed_message.id
             self.save_config()
-            return info_message
+            await self.cleanup_duplicate_managed_messages(channel, managed_message.id, title=embed.title)
+            return managed_message
         except discord.HTTPException:
             return None
+
+    async def ensure_managed_text_message(
+        self,
+        guild: discord.Guild,
+        channel: discord.TextChannel,
+        config_key: str,
+        content: str,
+    ) -> discord.Message | None:
+        config = self.get_guild_config(guild.id)
+        existing_message = await self.fetch_managed_message(channel, config.get(config_key))
+
+        try:
+            if existing_message is not None:
+                await existing_message.edit(content=content, embed=None, attachments=[])
+                return existing_message
+
+            managed_message = await channel.send(content)
+            config[config_key] = managed_message.id
+            self.save_config()
+            return managed_message
+        except discord.HTTPException:
+            return None
+
+    async def ensure_sales_rules_message(self, guild: discord.Guild, sales_channel: discord.TextChannel) -> discord.Message | None:
+        embed = self.build_sales_rules_embed()
+        return await self.ensure_managed_embed_message(
+            guild,
+            sales_channel,
+            "sales_info_message_id",
+            embed,
+        )
 
     async def ensure_sales_review_channel(self, guild: discord.Guild) -> discord.TextChannel:
         config = self.get_guild_config(guild.id)
@@ -1229,6 +1292,17 @@ class YishiBot(commands.Bot):
             role = await guild.create_role(name=name, mentionable=mentionable, reason="Configuration automatique du serveur")
         return role
 
+    async def ensure_role_order(self, guild: discord.Guild, ordered_roles: list[discord.Role]) -> None:
+        positions: dict[discord.Role, int] = {}
+        next_position = 1
+        for role in ordered_roles:
+            if role.is_default():
+                continue
+            positions[role] = next_position
+            next_position += 1
+        if positions:
+            await guild.edit_role_positions(positions=positions)
+
     async def ensure_category(
         self,
         guild: discord.Guild,
@@ -1321,6 +1395,20 @@ class YishiBot(commands.Bot):
         free_role = await self.ensure_role(guild, FREE_ACCESS_ROLE_NAME)
         for role_name in XP_ROLE_NAMES:
             await self.ensure_role(guild, role_name)
+        await self.ensure_role_order(
+            guild,
+            [
+                free_role,
+                helper_role,
+                trial_mod_role,
+                moderator_role,
+                responsable_role,
+                admin_role,
+                staff_role,
+                founder_role,
+                archive_role,
+            ],
+        )
 
         config["staff_role_id"] = staff_role.id
         config["helper_role_id"] = helper_role.id
@@ -1457,17 +1545,33 @@ class YishiBot(commands.Bot):
         await sales_channel.set_permissions(guild.default_role, view_channel=True, send_messages=False)
 
         with contextlib.suppress(discord.HTTPException):
-            await shop_channel.send(embed=self.build_shop_embed())
+            await self.ensure_managed_embed_message(guild, shop_channel, "shop_message_id", self.build_shop_embed())
         with contextlib.suppress(discord.HTTPException):
-            await netflix_channel.send(embed=self.build_free_access_embed("Netflix"))
+            await self.ensure_managed_embed_message(
+                guild,
+                netflix_channel,
+                "free_netflix_message_id",
+                self.build_free_access_embed("Netflix"),
+            )
         with contextlib.suppress(discord.HTTPException):
-            await crunchyroll_channel.send(embed=self.build_free_access_embed("Crunchyroll"))
+            await self.ensure_managed_embed_message(
+                guild,
+                crunchyroll_channel,
+                "free_crunchyroll_message_id",
+                self.build_free_access_embed("Crunchyroll"),
+            )
         with contextlib.suppress(discord.HTTPException):
-            await self.send_rules_text(rules_channel)
+            await self.send_rules_text(guild, rules_channel)
         with contextlib.suppress(discord.HTTPException):
-            panel_message = await ticket_panel_channel.send(embed=build_ticket_panel_embed(), view=TicketPanelView(self))
-            self.get_ticket_store(guild.id)["panel_message_id"] = panel_message.id
-            config["ticket_panel_message_id"] = panel_message.id
+            panel_message = await self.ensure_managed_embed_message(
+                guild,
+                ticket_panel_channel,
+                "ticket_panel_message_id",
+                build_ticket_panel_embed(),
+                view=TicketPanelView(self),
+            )
+            if panel_message is not None:
+                self.get_ticket_store(guild.id)["panel_message_id"] = panel_message.id
 
         await self.ensure_sales_rules_message(guild, sales_channel)
         self.save_config()
@@ -2635,9 +2739,9 @@ class YishiBot(commands.Bot):
         if existing is not None:
             existing.cancel()
 
-    async def send_rules_text(self, channel: discord.TextChannel) -> None:
-        for part in split_long_message(RULES_TEXT):
-            await channel.send(part)
+    async def send_rules_text(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
+        content = "\n\n".join(split_long_message(RULES_TEXT))
+        await self.ensure_managed_text_message(guild, channel, "rules_text_message_id", content)
 
     def get_ticket_destination_category(self, guild: discord.Guild, destination: str) -> discord.CategoryChannel | None:
         config = self.get_guild_config(guild.id)

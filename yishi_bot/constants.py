@@ -4,13 +4,13 @@ import re
 
 import discord
 
-HELPER_ROLE_NAME = "Helper"
-TRIAL_MOD_ROLE_NAME = "Modo Test"
-MODERATOR_ROLE_NAME = "Modo"
-RESPONSABLE_ROLE_NAME = "Responsable"
-ADMIN_ROLE_NAME = "Admin"
-FOUNDER_ROLE_NAME = "Fondateur"
-FREE_ACCESS_ROLE_NAME = "✦ Accès Free"
+HELPER_ROLE_NAME = "🆘・Helper"
+TRIAL_MOD_ROLE_NAME = "🧪・Modo Test"
+MODERATOR_ROLE_NAME = "🔨・Modo"
+RESPONSABLE_ROLE_NAME = "⚔️・Responsable"
+ADMIN_ROLE_NAME = "🛡️・Admin"
+FOUNDER_ROLE_NAME = "👑・Fondateur"
+FREE_ACCESS_ROLE_NAME = "🎁・Accès Free"
 
 AUTO_STAFF_ROLE_NAME = "👑・𝐒taff"
 AUTO_ARCHIVE_ROLE_NAME = "👑・𝐅ondateur"
@@ -63,11 +63,11 @@ PROTECTED_CHANNEL_IDS = (
 )
 
 XP_ROLE_NAMES = (
-    "✦ Visitor",
-    "✦ Regular",
-    "✦ Trusted",
-    "✦ Elite",
-    "✦ Legend",
+    "✨・Visitor",
+    "🌟・Regular",
+    "💠・Trusted",
+    "🔥・Elite",
+    "👑・Legend",
 )
 
 XP_GRADE_LEVELS = {
@@ -79,11 +79,11 @@ XP_GRADE_LEVELS = {
 }
 
 XP_ROLE_BY_GRADE = {
-    "Visitor": "✦ Visitor",
-    "Regular": "✦ Regular",
-    "Trusted": "✦ Trusted",
-    "Elite": "✦ Elite",
-    "Legend": "✦ Legend",
+    "Visitor": "✨・Visitor",
+    "Regular": "🌟・Regular",
+    "Trusted": "💠・Trusted",
+    "Elite": "🔥・Elite",
+    "Legend": "👑・Legend",
 }
 
 SERVER_STRUCTURE = {

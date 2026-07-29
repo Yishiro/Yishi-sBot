@@ -78,8 +78,12 @@ def default_config() -> dict[str, Any]:
         "staff_prices_channel_id": None,
         "free_netflix_channel_id": None,
         "free_crunchyroll_channel_id": None,
+        "shop_message_id": None,
+        "free_netflix_message_id": None,
+        "free_crunchyroll_message_id": None,
         "ticket_panel_message_id": None,
         "rules_role_id": None,
+        "rules_text_message_id": None,
         "rules_message_id": None,
     }
 

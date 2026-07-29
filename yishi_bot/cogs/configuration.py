@@ -261,7 +261,7 @@ class ConfigurationCog(commands.Cog):
         interaction: discord.Interaction,
         salon: discord.TextChannel,
     ) -> None:
-        await self.bot.send_rules_text(salon)
+        await self.bot.send_rules_text(interaction.guild, salon)
         await interaction.response.send_message(
             f"Le règlement a été envoyé dans {salon.mention}.",
             ephemeral=True,
