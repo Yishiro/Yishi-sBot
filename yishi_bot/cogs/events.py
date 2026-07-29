@@ -126,24 +126,7 @@ class EventsCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
-        before_roles = {role.id: role.name for role in before.roles if role != before.guild.default_role}
-        after_roles = {role.id: role.name for role in after.roles if role != after.guild.default_role}
-        added = [name for role_id, name in after_roles.items() if role_id not in before_roles]
-        removed = [name for role_id, name in before_roles.items() if role_id not in after_roles]
-        if added or removed:
-            fields: list[tuple[str, str, bool]] = []
-            if added:
-                fields.append(("Ajoutés", "\n".join(f"• {role}" for role in added), False))
-            if removed:
-                fields.append(("Retirés", "\n".join(f"• {role}" for role in removed), False))
-            await self.bot.log_event(
-                after.guild,
-                "🎭 Rôles modifiés",
-                f"Les rôles de {after.mention} ont été modifiés.",
-                discord.Color.blurple(),
-                thumbnail_url=after.display_avatar.url,
-                fields=fields,
-            )
+        return
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message) -> None:
