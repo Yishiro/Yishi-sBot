@@ -9,6 +9,7 @@ from discord.ext import commands
 
 from yishi_bot.ticketing import build_custom_ticket_panel_embed, build_ticket_panel_embed
 from yishi_bot.constants import (
+    ADMIN_ROLE_NAME,
     AUTO_ARCHIVE_CATEGORY_NAME,
     AUTO_ARCHIVE_ROLE_NAME,
     AUTO_GACHA_LOGS_CHANNEL_NAME,
@@ -18,12 +19,21 @@ from yishi_bot.constants import (
     AUTO_STAFF_ROLE_NAME,
     AUTO_TICKET_CATEGORY_NAME,
     AUTO_TRANSCRIPT_CHANNEL_NAME,
+    FOUNDER_ROLE_NAME,
+    FREE_ACCESS_ROLE_NAME,
     GACHA_REWARDS,
     GACHA_SPIN_TYPES,
+    HELPER_ROLE_NAME,
+    INVITE_ROLE_REQUIREMENTS,
+    MODERATOR_ROLE_NAME,
+    RESPONSABLE_ROLE_NAME,
     RULES_ACCEPT_TEXT,
     RULES_TEXT,
+    TRIAL_MOD_ROLE_NAME,
     WELCOME_ADVANTAGES,
     WELCOME_CHECKLIST,
+    XP_ROLE_BY_GRADE,
+    XP_ROLE_NAMES,
 )
 from yishi_bot.helpers import can_moderate, parse_duration, split_long_message
 from yishi_bot.views import AnnouncementModal, TicketPanelView
@@ -35,6 +45,96 @@ if TYPE_CHECKING:
 class ConfigurationCog(commands.Cog):
     def __init__(self, bot: YishiBot) -> None:
         self.bot = bot
+
+    @app_commands.command(name="roles_fix", description="Corrige automatiquement les rôles staff, niveaux et invitations")
+    @app_commands.default_permissions(manage_guild=True)
+    async def roles_fix(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        guild = interaction.guild
+        config = self.bot.get_guild_config(guild.id)
+
+        canonical_roles = {
+            "helper_role_id": HELPER_ROLE_NAME,
+            "trial_mod_role_id": TRIAL_MOD_ROLE_NAME,
+            "moderator_role_id": MODERATOR_ROLE_NAME,
+            "responsable_role_id": RESPONSABLE_ROLE_NAME,
+            "admin_role_id": ADMIN_ROLE_NAME,
+            "founder_role_id": FOUNDER_ROLE_NAME,
+            "staff_role_id": AUTO_STAFF_ROLE_NAME,
+            "archive_role_id": AUTO_ARCHIVE_ROLE_NAME,
+            "free_access_role_id": FREE_ACCESS_ROLE_NAME,
+        }
+        aliases = {
+            HELPER_ROLE_NAME: ["Helper", "🆘 Helper", "🆘・Helper"],
+            TRIAL_MOD_ROLE_NAME: ["Modo Test", "🧪 Modo Test", "🧪・Modo Test"],
+            MODERATOR_ROLE_NAME: ["Modo", "🔨 Modo", "🔨・Modo"],
+            RESPONSABLE_ROLE_NAME: ["Responsable", "⚔️ Responsable", "⚔️・Responsable"],
+            ADMIN_ROLE_NAME: ["Admin", "🛡️ Admin", "🛡️・Admin"],
+            FOUNDER_ROLE_NAME: ["Fondateur", "👑 Fondateur", "👑・Fondateur"],
+            AUTO_STAFF_ROLE_NAME: ["Staff", "👑 Staff", "🛡️ Staff", "🛡️・Staff", "👑・𝐒taff"],
+            AUTO_ARCHIVE_ROLE_NAME: ["Archive", "Haut Staff", "👑 Haut Staff", "👑・Haut Staff", "👑・𝐅ondateur"],
+            FREE_ACCESS_ROLE_NAME: ["Accès Free", "Acces Free", "🎁 Accès Free", "🎁・Accès Free"],
+        }
+
+        created_or_fixed: list[str] = []
+
+        for config_key, target_name in canonical_roles.items():
+            role = guild.get_role(config.get(config_key)) if config.get(config_key) else None
+            if role is None:
+                search_names = [target_name, *aliases.get(target_name, [])]
+                role = discord.utils.find(lambda r: r.name in search_names, guild.roles)
+            if role is None:
+                role = await guild.create_role(name=target_name, reason="Correction automatique des rôles")
+                created_or_fixed.append(f"Créé : {target_name}")
+            elif role.name != target_name:
+                await role.edit(name=target_name, reason="Correction automatique des rôles")
+                created_or_fixed.append(f"Renommé : {target_name}")
+            config[config_key] = role.id
+
+        xp_aliases = {
+            "✨・Niveau Novice": ["✦ Visitor", "Visitor", "✨ Niveau Novice"],
+            "🌟・Niveau Actif": ["✦ Regular", "Regular", "🌟 Niveau Actif"],
+            "💠・Niveau Confirmé": ["✦ Trusted", "Trusted", "💠 Niveau Confirmé"],
+            "🔥・Niveau Elite": ["✦ Elite", "Elite", "🔥 Niveau Elite"],
+            "👑・Niveau Légende": ["✦ Legend", "Legend", "👑 Niveau Légende"],
+        }
+        for target_name in XP_ROLE_NAMES:
+            role = discord.utils.get(guild.roles, name=target_name)
+            if role is None:
+                role = discord.utils.find(lambda r: r.name in xp_aliases.get(target_name, []), guild.roles)
+            if role is None:
+                await guild.create_role(name=target_name, reason="Création des rôles de niveau")
+                created_or_fixed.append(f"Créé : {target_name}")
+            elif role.name != target_name:
+                await role.edit(name=target_name, reason="Correction des rôles de niveau")
+                created_or_fixed.append(f"Renommé : {target_name}")
+
+        invite_aliases = {
+            "🥉・Inviteur Bronze [5]": ["🥉 Inviteur Bronze • 5", "Inviteur Bronze", "Bronze 5"],
+            "🥈・Inviteur Silver [10]": ["🥈 Inviteur Silver • 10", "Inviteur Silver", "Silver 10"],
+            "🥇・Inviteur Gold [15]": ["🥇 Inviteur Gold • 15", "Inviteur Gold", "Gold 15"],
+            "💎・Inviteur Diamond [20]": ["💎 Inviteur Diamond • 20", "Inviteur Diamond", "Diamond 20"],
+        }
+        for target_name in INVITE_ROLE_REQUIREMENTS:
+            role = discord.utils.get(guild.roles, name=target_name)
+            if role is None:
+                role = discord.utils.find(lambda r: r.name in invite_aliases.get(target_name, []), guild.roles)
+            if role is None:
+                await guild.create_role(name=target_name, reason="Création des rôles d'invitation")
+                created_or_fixed.append(f"Créé : {target_name}")
+            elif role.name != target_name:
+                await role.edit(name=target_name, reason="Correction des rôles d'invitation")
+                created_or_fixed.append(f"Renommé : {target_name}")
+
+        self.bot.save_config()
+        await interaction.followup.send(
+            "Rôles corrigés.\n" + ("\n".join(created_or_fixed) if created_or_fixed else "Aucune modification nécessaire."),
+            ephemeral=True,
+        )
 
     @app_commands.command(name="setup", description="Reconstruit automatiquement le serveur Yishi's Shop")
     @app_commands.default_permissions(manage_guild=True)
