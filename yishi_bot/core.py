@@ -620,12 +620,12 @@ class YishiBot(commands.Bot):
             "lock": XP_GRADE_LEVELS["Actif"],
             "unlock": XP_GRADE_LEVELS["Actif"],
             "limit": XP_GRADE_LEVELS["Actif"],
-            "invite": XP_GRADE_LEVELS["Confirmé"],
-            "kick": XP_GRADE_LEVELS["Confirmé"],
+            "invite": XP_GRADE_LEVELS["Confirme"],
+            "kick": XP_GRADE_LEVELS["Confirme"],
             "rename": XP_GRADE_LEVELS["Elite"],
-            "transfer": XP_GRADE_LEVELS["Légende"],
+            "transfer": XP_GRADE_LEVELS["Legende"],
             "stream": XP_GRADE_LEVELS["Actif"],
-            "camera": XP_GRADE_LEVELS["Confirmé"],
+            "camera": XP_GRADE_LEVELS["Confirme"],
         }
         return level >= requirements.get(feature, 999)
 
@@ -791,9 +791,9 @@ class YishiBot(commands.Bot):
         themes = {
             "Novice": {"accent": (220, 220, 220), "bg": (18, 24, 35)},
             "Actif": {"accent": (52, 152, 255), "bg": (12, 25, 48)},
-            "Confirmé": {"accent": (63, 217, 157), "bg": (8, 36, 30)},
+            "Confirme": {"accent": (63, 217, 157), "bg": (8, 36, 30)},
             "Elite": {"accent": (174, 82, 255), "bg": (24, 12, 44)},
-            "Légende": {"accent": (255, 198, 64), "bg": (28, 18, 45)},
+            "Legende": {"accent": (255, 198, 64), "bg": (28, 18, 45)},
         }
         return themes.get(grade, themes["Novice"])
 

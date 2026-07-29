@@ -4,47 +4,47 @@ import re
 
 import discord
 
-HELPER_ROLE_NAME = "???Helper"
-TRIAL_MOD_ROLE_NAME = "???Modo Test"
-MODERATOR_ROLE_NAME = "???Modo"
-RESPONSABLE_ROLE_NAME = "???Responsable"
-ADMIN_ROLE_NAME = "????Admin"
-FOUNDER_ROLE_NAME = "???Fondateur"
-FREE_ACCESS_ROLE_NAME = "???Acc?s Free"
+HELPER_ROLE_NAME = "\U0001f198\u30fbHelper"
+TRIAL_MOD_ROLE_NAME = "\U0001f9ea\u30fbModo Test"
+MODERATOR_ROLE_NAME = "\U0001f528\u30fbModo"
+RESPONSABLE_ROLE_NAME = "\u2694\ufe0f\u30fbResponsable"
+ADMIN_ROLE_NAME = "\U0001f6e1\ufe0f\u30fbAdmin"
+FOUNDER_ROLE_NAME = "\U0001f451\u30fbFondateur"
+FREE_ACCESS_ROLE_NAME = "\U0001f381\u30fbAcc\u00e8s Free"
 
-AUTO_STAFF_ROLE_NAME = "????Staff"
-AUTO_ARCHIVE_ROLE_NAME = "???Haut Staff"
-AUTO_LOGS_CHANNEL_NAME = "???Logs-staff"
+AUTO_STAFF_ROLE_NAME = "\U0001f6e1\ufe0f\u30fbStaff"
+AUTO_ARCHIVE_ROLE_NAME = "\U0001f451\u30fbHaut Staff"
+AUTO_LOGS_CHANNEL_NAME = "\U0001f4c2\u30fbLogs-staff"
 AUTO_TRANSCRIPT_CHANNEL_NAME = "logs-transcript"
-AUTO_GACHA_SPIN_CHANNEL_NAME = "???Gacha-spin"
-AUTO_GACHA_WINNER_CHANNEL_NAME = "???Gacha-winner"
+AUTO_GACHA_SPIN_CHANNEL_NAME = "\U0001f3b0\u30fbGacha-spin"
+AUTO_GACHA_WINNER_CHANNEL_NAME = "\U0001f3c6\u30fbGacha-winner"
 AUTO_GACHA_LOGS_CHANNEL_NAME = "gacha-logs"
-AUTO_SALES_CHANNEL_NAME = "???Ench?res"
+AUTO_SALES_CHANNEL_NAME = "\U0001f4b8\u30fbEnch\u00e8res"
 AUTO_SALES_CATEGORY_NAME = "Ventes-en-cours"
 AUTO_SALES_REVIEW_CHANNEL_NAME = "ventes-validation"
 
-VOICE_CREATOR_CHANNEL_NAME = "???Cr?er ton vocal"
-HELPER_TICKET_CATEGORY_NAME = "? TICKETS HELPERS"
-PURCHASE_TICKET_CATEGORY_NAME = "? TICKETS ACHATS"
-STAFF_TICKET_CATEGORY_NAME = "? TICKETS STAFF"
-ARCHIVED_TICKET_CATEGORY_NAME = "? TICKETS CLOSE"
-FREE_CATEGORY_NAME = "? FREE ACCOUNTS"
-FREE_NETFLIX_CHANNEL_NAME = "???netflix-free"
-FREE_CRUNCHYROLL_CHANNEL_NAME = "???crunchyroll-free"
-SHOP_CHANNEL_NAME = "????shop"
-TICKET_PANEL_CHANNEL_NAME = "???ouvrir-ticket"
-TICKET_INFO_CHANNEL_NAME = "????ticket-close"
-STAFF_PRICE_CHANNEL_NAME = "???tarifs-staff"
-ANNOUNCEMENTS_CHANNEL_NAME = "???annonces"
-RULES_CHANNEL_NAME = "???reglement"
-GIVEAWAYS_CHANNEL_NAME = "???giveaways"
-GENERAL_CHANNEL_NAME = "???general"
-MEDIA_CHANNEL_NAME = "???medias"
-WELCOME_CHANNEL_NAME = "???bienvenue"
-PROOFS_CHANNEL_NAME = "???preuves"
-VOUCHES_CHANNEL_NAME = "???vouches"
-REVIEWS_CHANNEL_NAME = "??avis-clients"
-UBER_EAT_CHANNEL_NAME = "???uber-eat"
+VOICE_CREATOR_CHANNEL_NAME = "\U0001f50a\u30fbCr\u00e9er ton vocal"
+HELPER_TICKET_CATEGORY_NAME = "\u2726 TICKETS HELPERS"
+PURCHASE_TICKET_CATEGORY_NAME = "\u2726 TICKETS ACHATS"
+STAFF_TICKET_CATEGORY_NAME = "\u2726 TICKETS STAFF"
+ARCHIVED_TICKET_CATEGORY_NAME = "\u2726 TICKETS CLOSE"
+FREE_CATEGORY_NAME = "\u2726 FREE ACCOUNTS"
+FREE_NETFLIX_CHANNEL_NAME = "\U0001f3ac\u30fbnetflix-free"
+FREE_CRUNCHYROLL_CHANNEL_NAME = "\U0001f37f\u30fbcrunchyroll-free"
+SHOP_CHANNEL_NAME = "\U0001f6cd\ufe0f\u30fbshop"
+TICKET_PANEL_CHANNEL_NAME = "\U0001f3ab\u30fbouvrir-ticket"
+TICKET_INFO_CHANNEL_NAME = "\U0001f5c2\ufe0f\u30fbticket-close"
+STAFF_PRICE_CHANNEL_NAME = "\U0001f4bc\u30fbtarifs-staff"
+ANNOUNCEMENTS_CHANNEL_NAME = "\U0001f4e2\u30fbannonces"
+RULES_CHANNEL_NAME = "\U0001f4dc\u30fbreglement"
+GIVEAWAYS_CHANNEL_NAME = "\U0001f381\u30fbgiveaways"
+GENERAL_CHANNEL_NAME = "\U0001f4ac\u30fbgeneral"
+MEDIA_CHANNEL_NAME = "\U0001f4f7\u30fbmedias"
+WELCOME_CHANNEL_NAME = "\U0001f44b\u30fbbienvenue"
+PROOFS_CHANNEL_NAME = "\U0001f9fe\u30fbpreuves"
+VOUCHES_CHANNEL_NAME = "\U0001f91d\u30fbvouches"
+REVIEWS_CHANNEL_NAME = "\u2b50\u30fbavis-clients"
+UBER_EAT_CHANNEL_NAME = "\U0001f354\u30fbuber-eat"
 FREE_INVITE_REQUIREMENT = 2
 FREE_RESET_WEEKDAY = 6
 FREE_RESET_HOUR = 23
@@ -63,36 +63,36 @@ PROTECTED_CHANNEL_IDS = (
 )
 
 XP_ROLE_NAMES = (
-    "??Niveau Novice",
-    "???Niveau Actif",
-    "???Niveau Confirm?",
-    "???Niveau Elite",
-    "???Niveau L?gende",
+    "\u2728\u30fbNiveau Novice",
+    "\U0001f31f\u30fbNiveau Actif",
+    "\U0001f4a0\u30fbNiveau Confirm\u00e9",
+    "\U0001f525\u30fbNiveau Elite",
+    "\U0001f451\u30fbNiveau L\u00e9gende",
 )
 
 XP_GRADE_LEVELS = {
     "Novice": 1,
     "Actif": 5,
-    "Confirm?": 12,
+    "Confirme": 12,
     "Elite": 20,
-    "L?gende": 35,
+    "Legende": 35,
 }
 
 XP_ROLE_BY_GRADE = {
-    "Novice": "??Niveau Novice",
-    "Actif": "???Niveau Actif",
-    "Confirm?": "???Niveau Confirm?",
-    "Elite": "???Niveau Elite",
-    "L?gende": "???Niveau L?gende",
+    "Novice": "\u2728\u30fbNiveau Novice",
+    "Actif": "\U0001f31f\u30fbNiveau Actif",
+    "Confirme": "\U0001f4a0\u30fbNiveau Confirm\u00e9",
+    "Elite": "\U0001f525\u30fbNiveau Elite",
+    "Legende": "\U0001f451\u30fbNiveau L\u00e9gende",
 }
 
 SERVER_STRUCTURE = {
-    "? ACCUEIL": (
+    "\u2726 ACCUEIL": (
         WELCOME_CHANNEL_NAME,
         RULES_CHANNEL_NAME,
         ANNOUNCEMENTS_CHANNEL_NAME,
     ),
-    "? BOUTIQUE": (
+    "\u2726 BOUTIQUE": (
         SHOP_CHANNEL_NAME,
         PROOFS_CHANNEL_NAME,
         VOUCHES_CHANNEL_NAME,
@@ -106,12 +106,12 @@ SERVER_STRUCTURE = {
         FREE_NETFLIX_CHANNEL_NAME,
         FREE_CRUNCHYROLL_CHANNEL_NAME,
     ),
-    "? COMMUNAUT?": (
+    "\u2726 COMMUNAUT\u00c9": (
         GENERAL_CHANNEL_NAME,
         MEDIA_CHANNEL_NAME,
         GIVEAWAYS_CHANNEL_NAME,
     ),
-    "? SUPPORT": (
+    "\u2726 SUPPORT": (
         TICKET_PANEL_CHANNEL_NAME,
         TICKET_INFO_CHANNEL_NAME,
     ),
@@ -119,14 +119,14 @@ SERVER_STRUCTURE = {
     PURCHASE_TICKET_CATEGORY_NAME: (),
     STAFF_TICKET_CATEGORY_NAME: (),
     ARCHIVED_TICKET_CATEGORY_NAME: (),
-    "? STAFF": (
+    "\u2726 STAFF": (
         AUTO_LOGS_CHANNEL_NAME,
         "???logs-transcript",
         "??ventes-validation",
         "???gacha-logs",
         STAFF_PRICE_CHANNEL_NAME,
     ),
-    "? VOCAUX": (),
+    "\u2726 VOCAUX": (),
 }
 
 AUTO_TICKET_CATEGORY_NAME = "Tickets"
@@ -137,17 +137,17 @@ TICKET_RECALL_HOURS = 24
 SALES_RECALL_HOURS = 24
 
 INVITE_ROLE_WEIGHTS = {
-    "???Inviteur Bronze [5]": 1.5,
-    "???Inviteur Silver [10]": 2.0,
-    "???Inviteur Gold [15]": 2.5,
-    "???Inviteur Diamond [20]": 3.0,
+    "\U0001f949\u30fbInviteur Bronze [5]": 1.5,
+    "\U0001f948\u30fbInviteur Silver [10]": 2.0,
+    "\U0001f947\u30fbInviteur Gold [15]": 2.5,
+    "\U0001f48e\u30fbInviteur Diamond [20]": 3.0,
 }
 
 INVITE_ROLE_REQUIREMENTS = {
-    "???Inviteur Bronze [5]": 5,
-    "???Inviteur Silver [10]": 10,
-    "???Inviteur Gold [15]": 15,
-    "???Inviteur Diamond [20]": 20,
+    "\U0001f949\u30fbInviteur Bronze [5]": 5,
+    "\U0001f948\u30fbInviteur Silver [10]": 10,
+    "\U0001f947\u30fbInviteur Gold [15]": 15,
+    "\U0001f48e\u30fbInviteur Diamond [20]": 20,
 }
 
 WELCOME_CHECKLIST = (
