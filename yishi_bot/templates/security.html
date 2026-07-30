@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Securite - Yishi Panel{% endblock %}
+{% block header %}Securite{% endblock %}
+{% block content %}
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Etat du panel</h2>
+        <p>Verification rapide de l'environnement owner panel et du bot.</p>
+      </div>
+    </div>
+    <div class="metric-grid">
+      <div class="list-card"><span class="kpi-label">Panel active</span><div class="kpi-value">{{ "Oui" if security.panel_enabled else "Non" }}</div></div>
+      <div class="list-card"><span class="kpi-label">Session active</span><div class="kpi-value">{{ "Oui" if security.session_active else "Non" }}</div></div>
+      <div class="list-card"><span class="kpi-label">Secret key</span><div class="kpi-value">{{ "OK" if security.secret_key_set else "Manquant" }}</div></div>
+      <div class="list-card"><span class="kpi-label">Database</span><div class="kpi-value">{{ "ON" if security.database_enabled else "JSON local" }}</div></div>
+      <div class="list-card"><span class="kpi-label">Guild sync</span><div class="kpi-value">{{ "OK" if security.guild_synced else "A verifier" }}</div></div>
+      <div class="list-card"><span class="kpi-label">Latence</span><div class="kpi-value">{{ security.latency_ms }} ms</div></div>
+    </div>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Actions owner</h2>
+        <p>Outils rapides sans passer par Discord.</p>
+      </div>
+    </div>
+    <div class="stack-actions">
+      {% for action in quick_actions %}
+      <form method="post">
+        <input type="hidden" name="action" value="{{ action.key }}">
+        <button type="submit" class="button {% if action.key == 'sync_commands' %}secondary{% endif %} full">{{ action.label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Identite panel</h2>
+      <p>Infos utiles quand tu controles plusieurs machines ou plusieurs bots.</p>
+    </div>
+  </div>
+  <div class="three-grid">
+    <div class="list-card"><span class="kpi-label">Username panel</span><div class="kpi-value">{{ security.username }}</div></div>
+    <div class="list-card"><span class="kpi-label">Serveurs connectes</span><div class="kpi-value">{{ security.guild_count }}</div></div>
+    <div class="list-card"><span class="kpi-label">Owner Discord</span><div class="kpi-value">{{ security.guild_owner_id }}</div></div>
+  </div>
+</section>
+{% endblock %}

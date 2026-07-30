@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Logs panel - Yishi Panel{% endblock %}
+{% block header %}Logs panel{% endblock %}
+{% block content %}
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Activite agregée</h2>
+      <p>Vue panel des derniers tickets, ventes, giveaways, promos et mouvements gacha connus par le bot.</p>
+    </div>
+    <span class="pill">Lecture rapide</span>
+  </div>
+  {% if entries %}
+  <div class="list-stack">
+    {% for entry in entries %}
+    <div class="list-card">
+      <div class="mini-meta">
+        <span>{{ entry.type }}</span>
+        <span>{{ entry.when_text }}</span>
+      </div>
+      <h3>{{ entry.title }}</h3>
+      <p>{{ entry.detail }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune activite exploitable n'a ete trouvee dans les stores du bot.</div>
+  {% endif %}
+</section>
+{% endblock %}

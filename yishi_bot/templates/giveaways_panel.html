@@ -1,11 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Giveaways • Yishi Panel{% endblock %}
+{% block title %}Giveaways - Yishi Panel{% endblock %}
 {% block header %}Giveaways{% endblock %}
 {% block content %}
 <section class="panel-section">
   <div class="section-head">
-    <h2>Créer un giveaway</h2>
-    <p>Crée un giveaway directement depuis le panel avec salon, lot, durée et gagnants.</p>
+    <div>
+      <h2>Creer un giveaway</h2>
+      <p>Creation directe depuis le panel avec duree, salon, lot et gagnants.</p>
+    </div>
   </div>
   <form method="post" class="form-grid form-grid-double">
     <input type="hidden" name="action" value="create">
@@ -14,37 +16,42 @@
       <input type="text" name="channel_id" placeholder="ID du salon">
     </label>
     <label>
-      <span>Prix</span>
-      <input type="text" name="prize" placeholder="Ex: Kitsune Permanent">
+      <span>Lot</span>
+      <input type="text" name="prize" placeholder="Ex: Kitsune permanent">
     </label>
     <label>
-      <span>Durée</span>
-      <input type="text" name="duration" placeholder="Ex: 10m, 2h, 1d">
+      <span>Duree</span>
+      <input type="text" name="duration" placeholder="10m, 2h, 1d">
     </label>
     <label>
       <span>Nombre de gagnants</span>
       <input type="number" name="winners_count" min="1" max="20" value="1">
     </label>
-    <button type="submit" class="button">Créer le giveaway</button>
+    <button type="submit" class="button">Creer le giveaway</button>
   </form>
 </section>
+
 <section class="panel-section">
   <div class="section-head">
-    <h2>Giveaways actifs</h2>
-    <p>Termine ou reroll directement depuis le panel.</p>
+    <div>
+      <h2>Giveaways actifs</h2>
+      <p>End, reroll, force winner discret et vue rapide des participants.</p>
+    </div>
+    <span class="pill warning">Owner controls</span>
   </div>
   {% if active_giveaways %}
-  <div class="promo-list">
+  <div class="list-stack">
     {% for giveaway in active_giveaways %}
-    <article class="promo-card">
-      <div class="promo-meta">
-        <span>ID {{ giveaway.message_id }}</span>
+    <div class="list-card">
+      <div class="mini-meta">
+        <span>Message {{ giveaway.message_id }}</span>
         <span>{{ giveaway.participants_count }} participants</span>
         <span>{{ giveaway.winners_count }} gagnant(s)</span>
       </div>
       <h3>{{ giveaway.prize }}</h3>
-      <p>Statut : {{ giveaway.status }}{% if giveaway.forced_winner_id %} • Forced winner: {{ giveaway.forced_winner_id }}{% endif %}</p>
-      <div class="promo-actions">
+      <p>Participants: {{ giveaway.participants_preview }}</p>
+      <p>Forced winner: {{ giveaway.forced_winner_id or "-" }}</p>
+      <div class="form-actions" style="margin-top:12px;">
         <form method="post">
           <input type="hidden" name="action" value="end">
           <input type="hidden" name="message_id" value="{{ giveaway.message_id }}">
@@ -56,7 +63,22 @@
           <button type="submit" class="button secondary">Reroll</button>
         </form>
       </div>
-    </article>
+      <div class="split-line"></div>
+      <form method="post" class="form-grid form-grid-double">
+        <input type="hidden" name="action" value="force_winner">
+        <input type="hidden" name="message_id" value="{{ giveaway.message_id }}">
+        <label>
+          <span>Forced winner ID</span>
+          <input type="text" name="member_id" placeholder="ID membre">
+        </label>
+        <button type="submit" class="button">Definir</button>
+      </form>
+      <form method="post" style="margin-top:10px;">
+        <input type="hidden" name="action" value="clear_forced">
+        <input type="hidden" name="message_id" value="{{ giveaway.message_id }}">
+        <button type="submit" class="button secondary">Retirer le forced winner</button>
+      </form>
+    </div>
     {% endfor %}
   </div>
   {% else %}
@@ -64,61 +86,63 @@
   {% endif %}
 </section>
 
-<section class="panel-section">
-  <div class="section-head">
-    <h2>Blacklist giveaways</h2>
-    <p>Ajoute ou retire rapidement un membre de la blacklist.</p>
-  </div>
-  <form method="post" class="form-grid form-grid-double">
-    <input type="hidden" name="action" value="blacklist_add">
-    <label>
-      <span>ID membre</span>
-      <input type="text" name="member_id" placeholder="ID Discord">
-    </label>
-    <label>
-      <span>Raison</span>
-      <input type="text" name="reason" placeholder="Raison staff">
-    </label>
-    <button type="submit" class="button">Ajouter blacklist</button>
-  </form>
-  {% if blacklist_entries %}
-  <div class="table-wrap" style="margin-top:16px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Membre</th>
-          <th>Raison</th>
-          <th>Date</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for entry in blacklist_entries %}
-        <tr>
-          <td>{{ entry.member_name }}</td>
-          <td>{{ entry.reason }}</td>
-          <td>{{ entry.added_at }}</td>
-          <td>
-            <form method="post">
-              <input type="hidden" name="action" value="blacklist_remove">
-              <input type="hidden" name="member_id" value="{{ entry.member_id }}">
-              <button type="submit" class="button secondary">Retirer</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state" style="margin-top:16px;">Aucun membre blacklist.</div>
-  {% endif %}
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Blacklist giveaways</h2>
+        <p>Blocage discret de certains membres.</p>
+      </div>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="action" value="blacklist_add">
+      <label>
+        <span>ID membre</span>
+        <input type="text" name="member_id" placeholder="ID Discord">
+      </label>
+      <label>
+        <span>Raison</span>
+        <input type="text" name="reason" placeholder="Raison interne">
+      </label>
+      <button type="submit" class="button">Ajouter blacklist</button>
+    </form>
+  </article>
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Membres blacklistes</h2>
+        <p>Liste actuelle.</p>
+      </div>
+    </div>
+    {% if blacklist_entries %}
+    <div class="list-stack">
+      {% for entry in blacklist_entries %}
+      <div class="list-card">
+        <div class="mini-meta">
+          <span>{{ entry.member_name }}</span>
+          <span>{{ entry.added_at }}</span>
+        </div>
+        <p>{{ entry.reason }}</p>
+        <form method="post" style="margin-top:12px;">
+          <input type="hidden" name="action" value="blacklist_remove">
+          <input type="hidden" name="member_id" value="{{ entry.member_id }}">
+          <button type="submit" class="button secondary">Retirer</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun membre blacklist.</div>
+    {% endif %}
+  </article>
 </section>
 
 <section class="panel-section">
   <div class="section-head">
-    <h2>Giveaways terminés</h2>
-    <p>Historique rapide.</p>
+    <div>
+      <h2>Giveaways termines</h2>
+      <p>Historique rapide des lots termines.</p>
+    </div>
   </div>
   {% if ended_giveaways %}
   <div class="table-wrap">
@@ -126,7 +150,7 @@
       <thead>
         <tr>
           <th>ID</th>
-          <th>Prix</th>
+          <th>Lot</th>
           <th>Participants</th>
           <th>Gagnants</th>
           <th>Statut</th>
@@ -146,7 +170,7 @@
     </table>
   </div>
   {% else %}
-  <div class="empty-state">Aucun giveaway terminé.</div>
+  <div class="empty-state">Aucun giveaway termine.</div>
   {% endif %}
 </section>
 {% endblock %}

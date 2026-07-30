@@ -1,25 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Ventes • Yishi Panel{% endblock %}
+{% block title %}Ventes - Yishi Panel{% endblock %}
 {% block header %}Ventes{% endblock %}
 {% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>En attente</span><strong>{{ sales_stats.pending }}</strong></article>
+  <article class="stat-card"><span>Actives</span><strong>{{ sales_stats.active }}</strong></article>
+  <article class="stat-card"><span>Reservees</span><strong>{{ sales_stats.reserved }}</strong></article>
+</section>
+
 <section class="panel-section">
   <div class="section-head">
-    <h2>Ventes en attente</h2>
-    <p>Valide ou refuse directement les demandes envoyees au staff.</p>
+    <div>
+      <h2>Ventes a valider</h2>
+      <p>Le staff owner peut accepter ou refuser les annonces en attente.</p>
+    </div>
   </div>
   {% if pending_sales %}
-  <div class="promo-list">
+  <div class="list-stack">
     {% for sale in pending_sales %}
-    <article class="promo-card">
-      <div class="promo-meta">
-        <span>#{{ sale.target_id }}</span>
-        <span>{{ sale.category }}</span>
-        <span>{{ sale.price }}</span>
+    <div class="list-card">
+      <div class="mini-meta">
+        <span>Review {{ sale.target_id }}</span>
         <span>{{ sale.created_at }}</span>
       </div>
       <h3>{{ sale.product }}</h3>
-      <p>Vendeur : {{ sale.seller_name }}</p>
-      <div class="promo-actions">
+      <p>{{ sale.category }} • {{ sale.price }} • vendeur {{ sale.seller_name }}</p>
+      <div class="form-actions" style="margin-top:12px;">
         <form method="post">
           <input type="hidden" name="action" value="approve">
           <input type="hidden" name="target_id" value="{{ sale.target_id }}">
@@ -31,7 +37,7 @@
           <button type="submit" class="button danger">Refuser</button>
         </form>
       </div>
-    </article>
+    </div>
     {% endfor %}
   </div>
   {% else %}
@@ -41,66 +47,90 @@
 
 <section class="panel-section">
   <div class="section-head">
-    <h2>Annonces publiques</h2>
-    <p>Vue rapide des ventes encore visibles dans le salon public.</p>
+    <div>
+      <h2>Ventes actives</h2>
+      <p>Annonces publiques actuellement visibles dans le salon des ventes.</p>
+    </div>
   </div>
   {% if active_sales %}
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
+          <th>Annonce</th>
           <th>Produit</th>
-          <th>Catégorie</th>
           <th>Prix</th>
           <th>Vendeur</th>
           <th>Statut</th>
-          <th>Créée</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for sale in active_sales %}
         <tr>
+          <td>{{ sale.message_id }}</td>
           <td>{{ sale.product }}</td>
-          <td>{{ sale.category }}</td>
           <td>{{ sale.price }}</td>
           <td>{{ sale.seller_name }}</td>
           <td>{{ sale.status }}</td>
-          <td>{{ sale.created_at }}</td>
+          <td>
+            {% if sale.sale_channel_id %}
+            <form method="post">
+              <input type="hidden" name="action" value="close">
+              <input type="hidden" name="target_id" value="{{ sale.sale_channel_id }}">
+              <button type="submit" class="button danger">Cloturer</button>
+            </form>
+            {% else %}
+            <span class="soft-label">Pas de salon prive</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <div class="empty-state">Aucune annonce publique active.</div>
+  <div class="empty-state">Aucune vente active.</div>
   {% endif %}
 </section>
 
 <section class="panel-section">
   <div class="section-head">
-    <h2>Ventes réservées</h2>
-    <p>Ferme un salon de transaction reserve directement depuis le panel.</p>
+    <div>
+      <h2>Ventes reservees</h2>
+      <p>Salons prives acheteur/vendeur deja ouverts.</p>
+    </div>
   </div>
   {% if reserved_sales %}
-  <div class="promo-list">
-    {% for sale in reserved_sales %}
-    <article class="promo-card">
-      <div class="promo-meta">
-        <span>Salon {{ sale.sale_channel_id }}</span>
-        <span>{{ sale.price }}</span>
-        <span>{{ sale.created_at }}</span>
-      </div>
-      <h3>{{ sale.product }}</h3>
-      <p>Vendeur : {{ sale.seller_name }} • Acheteur : {{ sale.buyer_name }}</p>
-      <div class="promo-actions">
-        <form method="post">
-          <input type="hidden" name="action" value="close">
-          <input type="hidden" name="target_id" value="{{ sale.sale_channel_id }}">
-          <button type="submit" class="button danger">Cloturer</button>
-        </form>
-      </div>
-    </article>
-    {% endfor %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Salon vente</th>
+          <th>Produit</th>
+          <th>Vendeur</th>
+          <th>Acheteur</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sale in reserved_sales %}
+        <tr>
+          <td>{{ sale.sale_channel_id }}</td>
+          <td>{{ sale.product }}</td>
+          <td>{{ sale.seller_name }}</td>
+          <td>{{ sale.buyer_name }}</td>
+          <td>
+            <form method="post">
+              <input type="hidden" name="action" value="close">
+              <input type="hidden" name="target_id" value="{{ sale.sale_channel_id }}">
+              <button type="submit" class="button danger">Fermer</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   {% else %}
   <div class="empty-state">Aucune vente reservee.</div>

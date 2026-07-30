@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}XP & niveaux - Yishi Panel{% endblock %}
+{% block header %}XP & niveaux{% endblock %}
+{% block content %}
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Actions progression</h2>
+        <p>Controle rapide du systeme XP et des roles de niveau.</p>
+      </div>
+    </div>
+    <div class="stack-actions">
+      <form method="post">
+        <input type="hidden" name="action" value="sync_xp_roles">
+        <button type="submit" class="button full">Resync tous les roles XP</button>
+      </form>
+    </div>
+    <div class="split-line"></div>
+    <form method="post" class="form-grid form-grid-double">
+      <input type="hidden" name="action" value="set_level">
+      <label>
+        <span>ID membre</span>
+        <input type="text" name="member_id" value="{{ request.args.get('member_id', '') }}" placeholder="ID Discord">
+      </label>
+      <label>
+        <span>Niveau cible</span>
+        <input type="number" name="target_level" min="0" placeholder="Ex: 35">
+      </label>
+      <button type="submit" class="button">Appliquer le niveau</button>
+    </form>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Unlocks vocaux</h2>
+        <p>Rappel des paliers qui debloquent les options de vocal temporaire.</p>
+      </div>
+    </div>
+    <div class="list-stack">
+      {% for label, required in grade_rules %}
+      <div class="list-card">
+        <div class="mini-meta"><span>Niveau {{ required }}+</span></div>
+        <h3>{{ label }}</h3>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+{% if selected_profile %}
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Profil selectionne</h2>
+      <p>{{ selected_profile.member.display_name }} • rang #{{ selected_profile.rank }}</p>
+    </div>
+    <span class="pill success">{{ selected_profile.stats.grade }}</span>
+  </div>
+  <div class="three-grid">
+    <div class="stat-card"><span>Niveau</span><strong>{{ selected_profile.stats.level }}</strong></div>
+    <div class="stat-card"><span>XP total</span><strong>{{ selected_profile.stats.xp }}</strong></div>
+    <div class="stat-card"><span>Messages</span><strong>{{ selected_profile.stats.message_count }}</strong></div>
+    <div class="stat-card"><span>Temps vocal</span><strong>{{ selected_profile.voice_text }}</strong></div>
+    <div class="stat-card"><span>XP courant</span><strong>{{ selected_profile.stats.current_xp }}/{{ selected_profile.stats.needed_xp }}</strong></div>
+    <div class="stat-card"><span>Grade</span><strong>{{ selected_profile.stats.grade }}</strong></div>
+  </div>
+  <div class="two-grid" style="margin-top:16px;">
+    <article class="list-card">
+      <div class="card-head"><h3>Fonctions debloquees</h3></div>
+      {% if selected_profile.unlocked %}
+      <div class="list-stack">
+        {% for item in selected_profile.unlocked %}
+        <div class="pill success">{{ item }}</div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">Aucune fonctionnalite debloquee.</div>
+      {% endif %}
+    </article>
+    <article class="list-card">
+      <div class="card-head"><h3>Fonctions verrouillees</h3></div>
+      {% if selected_profile.locked %}
+      <div class="list-stack">
+        {% for item in selected_profile.locked %}
+        <div class="pill warning">{{ item }}</div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">Tout est debloque.</div>
+      {% endif %}
+    </article>
+  </div>
+</section>
+{% endif %}
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Leaderboard XP</h2>
+      <p>Top 30 des membres suivis par le systeme de progression.</p>
+    </div>
+  </div>
+  {% if leaderboard %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Rang</th>
+          <th>Membre</th>
+          <th>Grade</th>
+          <th>Niveau</th>
+          <th>XP</th>
+          <th>Messages</th>
+          <th>Vocal</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in leaderboard %}
+        <tr>
+          <td>#{{ row.rank }}</td>
+          <td>{{ row.member_name }}</td>
+          <td>{{ row.grade }}</td>
+          <td>{{ row.level }}</td>
+          <td>{{ row.xp }}</td>
+          <td>{{ row.messages }}</td>
+          <td>{{ row.voice }}</td>
+          <td><a class="button secondary" href="{{ url_for('levels_page', guild_id=selected_guild.id if selected_guild else None, member_id=row.member_id) }}">Voir</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune donnee XP disponible pour ce serveur.</div>
+  {% endif %}
+</section>
+{% endblock %}

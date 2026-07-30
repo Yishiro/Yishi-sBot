@@ -1,62 +1,83 @@
 {% extends "base.html" %}
-{% block title %}Tickets • Yishi Panel{% endblock %}
+{% block title %}Tickets - Yishi Panel{% endblock %}
 {% block header %}Tickets{% endblock %}
 {% block content %}
-<section class="panel-section">
-  <div class="section-head">
-    <h2>Tickets ouverts</h2>
-    <div>
-      <p>Archive un ticket directement depuis le panel owner.</p>
-      <form method="post">
-        <input type="hidden" name="action" value="reset">
-        <button type="submit" class="button danger">Reset total des tickets</button>
-      </form>
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Tickets ouverts</h2>
+        <p>Archive ou rouvre les tickets sans passer par Discord.</p>
+      </div>
     </div>
-  </div>
-  {% if open_tickets %}
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Salon</th>
-          <th>Owner</th>
-          <th>Helper</th>
-          <th>Type</th>
-          <th>Destination</th>
-          <th>Ouvert</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for ticket in open_tickets %}
-        <tr>
-          <td>{{ ticket.channel_name }}</td>
-          <td>{{ ticket.owner_name }}</td>
-          <td>{{ ticket.helper_name }}</td>
-          <td>{{ ticket.ticket_type }}</td>
-          <td>{{ ticket.destination }}</td>
-          <td>{{ ticket.opened_at }}</td>
-          <td>
-            <form method="post">
-              <input type="hidden" name="action" value="archive">
-              <input type="hidden" name="channel_id" value="{{ ticket.channel_id }}">
-              <button type="submit" class="button secondary">Archiver</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state">Aucun ticket ouvert.</div>
-  {% endif %}
+    {% if open_tickets %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Salon</th>
+            <th>Owner</th>
+            <th>Helper</th>
+            <th>Type</th>
+            <th>Destination</th>
+            <th>Ouvert</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ticket in open_tickets %}
+          <tr>
+            <td>{{ ticket.channel_name }}</td>
+            <td>{{ ticket.owner_name }}</td>
+            <td>{{ ticket.helper_name }}</td>
+            <td>{{ ticket.ticket_type }}</td>
+            <td>{{ ticket.destination }}</td>
+            <td>{{ ticket.opened_at }}</td>
+            <td>
+              <form method="post">
+                <input type="hidden" name="action" value="archive">
+                <input type="hidden" name="channel_id" value="{{ ticket.channel_id }}">
+                <button type="submit" class="button danger">Archiver</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun ticket ouvert.</div>
+    {% endif %}
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Classement staff tickets</h2>
+        <p>Points aides/support sur les tickets.</p>
+      </div>
+    </div>
+    {% if staff_points %}
+    <div class="list-stack">
+      {% for row in staff_points %}
+      <div class="list-card">
+        <div class="mini-meta"><span>{{ row.points }} pts</span></div>
+        <h3>{{ row.member_name }}</h3>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun point staff pour le moment.</div>
+    {% endif %}
+  </article>
 </section>
 
 <section class="panel-section">
   <div class="section-head">
-    <h2>Tickets archives</h2>
-    <p>Reouvre un ticket archive si besoin.</p>
+    <div>
+      <h2>Tickets archives</h2>
+      <p>Historique des tickets fermes/restaures.</p>
+    </div>
   </div>
   {% if archived_tickets %}
   <div class="table-wrap">
@@ -94,5 +115,18 @@
   {% else %}
   <div class="empty-state">Aucun ticket archive.</div>
   {% endif %}
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Reset complet</h2>
+      <p>Supprime tous les tickets suivis par le bot et remet le compteur a zero.</p>
+    </div>
+  </div>
+  <form method="post">
+    <input type="hidden" name="action" value="reset">
+    <button type="submit" class="button danger">Reset total tickets</button>
+  </form>
 </section>
 {% endblock %}

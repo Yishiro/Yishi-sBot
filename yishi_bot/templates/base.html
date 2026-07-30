@@ -12,14 +12,14 @@
       <div class="brand">
         <div class="brand-mark">Y</div>
         <div>
-          <strong>Yishi Panel</strong>
-          <p>Owner only</p>
+          <strong>Yishi Owner Panel</strong>
+          <p>Owner only control center</p>
         </div>
       </div>
 
       {% if selected_guild %}
       <form method="get" class="guild-picker">
-        <label for="guild_id">Serveur</label>
+        <label for="guild_id">Serveur actif</label>
         <select id="guild_id" name="guild_id" onchange="this.form.submit()">
           {% for guild in guilds %}
           <option value="{{ guild.id }}" {% if selected_guild and guild.id == selected_guild.id %}selected{% endif %}>{{ guild.name }}</option>
@@ -32,17 +32,20 @@
         <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard', guild_id=selected_guild.id if selected_guild else None) }}">Dashboard</a>
         <a class="{% if active_page == 'config' %}active{% endif %}" href="{{ url_for('config_page', guild_id=selected_guild.id if selected_guild else None) }}">Configuration</a>
         <a class="{% if active_page == 'auto_messages' %}active{% endif %}" href="{{ url_for('auto_messages', guild_id=selected_guild.id if selected_guild else None) }}">Messages auto</a>
-        <a class="{% if active_page == 'promotions' %}active{% endif %}" href="{{ url_for('promotions', guild_id=selected_guild.id if selected_guild else None) }}">Promotions</a>
+        <a class="{% if active_page == 'levels' %}active{% endif %}" href="{{ url_for('levels_page', guild_id=selected_guild.id if selected_guild else None) }}">XP & niveaux</a>
         <a class="{% if active_page == 'tickets' %}active{% endif %}" href="{{ url_for('tickets_page', guild_id=selected_guild.id if selected_guild else None) }}">Tickets</a>
         <a class="{% if active_page == 'sales' %}active{% endif %}" href="{{ url_for('sales_page', guild_id=selected_guild.id if selected_guild else None) }}">Ventes</a>
         <a class="{% if active_page == 'giveaways' %}active{% endif %}" href="{{ url_for('giveaways_page', guild_id=selected_guild.id if selected_guild else None) }}">Giveaways</a>
         <a class="{% if active_page == 'gacha' %}active{% endif %}" href="{{ url_for('gacha_page', guild_id=selected_guild.id if selected_guild else None) }}">Gacha</a>
-        <a class="{% if active_page == 'invites' %}active{% endif %}" href="{{ url_for('invites_page', guild_id=selected_guild.id if selected_guild else None) }}">Invitations</a>
+        <a class="{% if active_page == 'invites' %}active{% endif %}" href="{{ url_for('invites_page', guild_id=selected_guild.id if selected_guild else None) }}">Invitations & free</a>
+        <a class="{% if active_page == 'promotions' %}active{% endif %}" href="{{ url_for('promotions', guild_id=selected_guild.id if selected_guild else None) }}">Promotions</a>
+        <a class="{% if active_page == 'logs' %}active{% endif %}" href="{{ url_for('logs_page', guild_id=selected_guild.id if selected_guild else None) }}">Logs panel</a>
+        <a class="{% if active_page == 'security' %}active{% endif %}" href="{{ url_for('security_page', guild_id=selected_guild.id if selected_guild else None) }}">Securite</a>
       </nav>
 
       {% if active_page != 'login' %}
       <form method="post" action="{{ url_for('logout') }}" class="logout">
-        <button type="submit" class="button secondary">Déconnexion</button>
+        <button type="submit" class="button secondary full">Deconnexion</button>
       </form>
       {% endif %}
     </aside>

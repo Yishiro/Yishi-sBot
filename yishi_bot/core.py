@@ -6,10 +6,10 @@ import io
 import random
 import tempfile
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 from discord import app_commands
@@ -83,7 +83,10 @@ class YishiBot(commands.Bot):
         self.pending_gacha_spins: set[tuple[int, int]] = set()
         self.message_xp_cooldowns: dict[tuple[int, int], datetime] = {}
         self.background_task: asyncio.Task | None = None
-        self.paris_tz = ZoneInfo("Europe/Paris")
+        try:
+            self.paris_tz = ZoneInfo("Europe/Paris")
+        except ZoneInfoNotFoundError:
+            self.paris_tz = timezone.utc
         self.sync_done = False
         self.synced_guild_ids: set[int] = set()
         self.tree.on_error = self.on_app_command_error

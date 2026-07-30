@@ -1,20 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Configuration • Yishi Panel{% endblock %}
+{% block title %}Configuration - Yishi Panel{% endblock %}
 {% block header %}Configuration{% endblock %}
 {% block content %}
 <section class="panel-section">
   <div class="section-head">
-    <h2>IDs principaux</h2>
-    <p>Modifie ici les salons et rôles clés sans repasser par les commandes Discord.</p>
+    <div>
+      <h2>Configuration intelligente</h2>
+      <p>Chaque champ garde son ID, mais tu vois aussi directement ce qu'il pointe dans le serveur.</p>
+    </div>
+    <span class="pill">Owner only</span>
   </div>
-  <form method="post" class="form-grid form-grid-double">
-    {% for key, label in config_fields %}
-    <label>
-      <span>{{ label }}</span>
-      <input type="text" name="{{ key }}" value="{{ config.get(key, '') or '' }}" placeholder="ID ou vide">
-    </label>
+
+  <form method="post" class="form-grid">
+    {% for section in config_sections %}
+    <div class="list-card">
+      <div class="card-head">
+        <h3>{{ section.title }}</h3>
+      </div>
+      <div class="form-grid form-grid-double">
+        {% for field in section.fields %}
+        <label>
+          <span>{{ field.label }}</span>
+          <input type="text" name="{{ field.key }}" value="{{ field.value }}" placeholder="ID ou vide">
+          <div class="current-value">Actuel: {{ field.current }}</div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
     {% endfor %}
-    <button type="submit" class="button">Enregistrer la configuration</button>
+    <div class="form-actions">
+      <button type="submit" class="button">Enregistrer la configuration</button>
+    </div>
   </form>
 </section>
 {% endblock %}

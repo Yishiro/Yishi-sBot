@@ -1,54 +1,63 @@
 {% extends "base.html" %}
-{% block title %}Promotions • Yishi Panel{% endblock %}
+{% block title %}Promotions - Yishi Panel{% endblock %}
 {% block header %}Promotions{% endblock %}
 {% block content %}
 <section class="panel-section">
   <div class="section-head">
-    <h2>Ajouter une promotion</h2>
-    <p>Crée une nouvelle offre pour la rotation hebdomadaire sans passer par Discord.</p>
+    <div>
+      <h2>Ajouter une promotion</h2>
+      <p>Les promotions tournent en file avec priorite et remontent en fin de liste apres publication.</p>
+    </div>
   </div>
   <form method="post" class="form-grid">
     <input type="hidden" name="action" value="add">
+    <div class="form-grid form-grid-double">
+      <label>
+        <span>Titre</span>
+        <input type="text" name="title" placeholder="Ex: Weekend bonus">
+      </label>
+      <label>
+        <span>Priorite</span>
+        <input type="number" name="priority" min="1" max="5" value="1">
+      </label>
+    </div>
     <label>
-      <span>Titre</span>
-      <input type="text" name="title" placeholder="Ex: Promo spin week-end" required>
+      <span>Contenu</span>
+      <textarea name="content" placeholder="Texte de la promotion"></textarea>
     </label>
-    <label>
-      <span>Priorité</span>
-      <input type="number" name="priority" min="1" max="5" value="1" required>
-    </label>
-    <label>
-      <span>Texte</span>
-      <textarea name="content" rows="8" placeholder="Contenu de la promo" required></textarea>
-    </label>
-    <button type="submit" class="button">Ajouter la promotion</button>
+    <div class="form-actions">
+      <button type="submit" class="button">Ajouter</button>
+    </div>
+  </form>
+  <form method="post" style="margin-top:10px;">
+    <input type="hidden" name="action" value="post_next">
+    <button type="submit" class="button secondary">Publier la prochaine maintenant</button>
   </form>
 </section>
 
 <section class="panel-section">
   <div class="section-head">
-    <h2>Rotation actuelle</h2>
-    <form method="post">
-      <input type="hidden" name="action" value="post_next">
-      <button type="submit" class="button secondary">Publier la prochaine promo</button>
-    </form>
+    <div>
+      <h2>File promotions</h2>
+      <p>Gestion des promotions actives et inactives.</p>
+    </div>
   </div>
   {% if promotions %}
-  <div class="promo-list">
+  <div class="list-stack">
     {% for promo in promotions %}
-    <article class="promo-card">
-      <div class="promo-meta">
+    <div class="list-card">
+      <div class="mini-meta">
         <span>#{{ promo.id }}</span>
-        <span>Priorité {{ promo.priority }}</span>
+        <span>Priorite {{ promo.priority }}</span>
         <span>{{ "Active" if promo.active else "Off" }}</span>
       </div>
       <h3>{{ promo.title }}</h3>
       <p>{{ promo.content }}</p>
-      <div class="promo-actions">
+      <div class="form-actions" style="margin-top:12px;">
         <form method="post">
           <input type="hidden" name="action" value="toggle">
           <input type="hidden" name="promo_id" value="{{ promo.id }}">
-          <button type="submit" class="button secondary">{{ "Désactiver" if promo.active else "Réactiver" }}</button>
+          <button type="submit" class="button secondary">{{ "Desactiver" if promo.active else "Reactiver" }}</button>
         </form>
         <form method="post">
           <input type="hidden" name="action" value="delete">
@@ -56,11 +65,11 @@
           <button type="submit" class="button danger">Supprimer</button>
         </form>
       </div>
-    </article>
+    </div>
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state">Aucune promotion enregistrée.</div>
+  <div class="empty-state">Aucune promotion chargee.</div>
   {% endif %}
 </section>
 {% endblock %}

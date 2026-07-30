@@ -1,58 +1,127 @@
 {% extends "base.html" %}
-{% block title %}Dashboard • Yishi Panel{% endblock %}
+{% block title %}Dashboard - Yishi Panel{% endblock %}
 {% block header %}Dashboard{% endblock %}
 {% block content %}
 <section class="cards-grid">
   <article class="stat-card"><span>Tickets ouverts</span><strong>{{ stats.tickets_open }}</strong></article>
   <article class="stat-card"><span>Ventes actives</span><strong>{{ stats.sales_active }}</strong></article>
-  <article class="stat-card"><span>Ventes à valider</span><strong>{{ stats.sales_pending }}</strong></article>
-  <article class="stat-card"><span>Giveaways en cours</span><strong>{{ stats.giveaways_active }}</strong></article>
+  <article class="stat-card"><span>Ventes a valider</span><strong>{{ stats.sales_pending }}</strong></article>
+  <article class="stat-card"><span>Giveaways actifs</span><strong>{{ stats.giveaways_active }}</strong></article>
   <article class="stat-card"><span>Promotions</span><strong>{{ stats.promotions_total }}</strong></article>
   <article class="stat-card"><span>Membres suivis XP</span><strong>{{ stats.tracked_members }}</strong></article>
+  <article class="stat-card"><span>Acces free actifs</span><strong>{{ stats.free_members }}</strong></article>
+  <article class="stat-card"><span>Points staff</span><strong>{{ stats.staff_points_total }}</strong></article>
 </section>
 
-<section class="panel-section">
-  <div class="section-head">
-    <h2>Vue rapide</h2>
-    <p>Le panel V1 te donne déjà accès aux actions les plus utiles sans toucher au code.</p>
-  </div>
-  <div class="quick-links">
-    <a class="button" href="{{ url_for('config_page', guild_id=selected_guild.id if selected_guild else None) }}">Configurer le serveur</a>
-    <a class="button secondary" href="{{ url_for('auto_messages', guild_id=selected_guild.id if selected_guild else None) }}">Gérer les messages auto</a>
-    <a class="button secondary" href="{{ url_for('promotions', guild_id=selected_guild.id if selected_guild else None) }}">Gérer les promotions</a>
-  </div>
+<section class="panel-section hero-grid">
+  <article class="info-card">
+    <div class="card-head">
+      <h3>Vue serveur</h3>
+      <span class="pill success">V2 owner panel</span>
+    </div>
+    <div class="metric-grid">
+      <div>
+        <span class="kpi-label">Membres</span>
+        <div class="kpi-value">{{ overview.members }}</div>
+      </div>
+      <div>
+        <span class="kpi-label">Humains</span>
+        <div class="kpi-value">{{ overview.humans }}</div>
+      </div>
+      <div>
+        <span class="kpi-label">Bots</span>
+        <div class="kpi-value">{{ overview.bots }}</div>
+      </div>
+      <div>
+        <span class="kpi-label">Salons texte</span>
+        <div class="kpi-value">{{ overview.text_channels }}</div>
+      </div>
+      <div>
+        <span class="kpi-label">Vocaux</span>
+        <div class="kpi-value">{{ overview.voice_channels }}</div>
+      </div>
+      <div>
+        <span class="kpi-label">Roles</span>
+        <div class="kpi-value">{{ overview.roles }}</div>
+      </div>
+    </div>
+  </article>
+
+  <article class="info-card">
+    <div class="card-head">
+      <h3>Actions owner rapides</h3>
+      <span class="pill">1 clic</span>
+    </div>
+    <div class="stack-actions">
+      {% for action in quick_actions %}
+      <form method="post">
+        <input type="hidden" name="action" value="{{ action.key }}">
+        <button type="submit" class="button {% if action.key == 'sync_commands' %}secondary{% endif %} full">{{ action.label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </article>
 </section>
 
-<section class="panel-section">
-  <div class="section-head">
-    <h2>Rotation promotions</h2>
-    <p>Aperçu rapide des premières promotions actuellement chargées.</p>
-  </div>
-  {% if recent_promos %}
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Titre</th>
-          <th>Priorité</th>
-          <th>Statut</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for promo in recent_promos %}
-        <tr>
-          <td>#{{ promo.id }}</td>
-          <td>{{ promo.title }}</td>
-          <td>{{ promo.priority }}</td>
-          <td>{{ "Active" if promo.active else "Off" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state">Aucune promotion trouvée pour ce serveur.</div>
-  {% endif %}
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Rotation promotions</h2>
+        <p>Les prochaines promotions chargees dans la file.</p>
+      </div>
+    </div>
+    {% if recent_promos %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Titre</th>
+            <th>Priorite</th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for promo in recent_promos %}
+          <tr>
+            <td>#{{ promo.id }}</td>
+            <td>{{ promo.title }}</td>
+            <td>{{ promo.priority }}</td>
+            <td>{{ "Active" if promo.active else "Off" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">Aucune promotion trouvee pour ce serveur.</div>
+    {% endif %}
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Activite recente</h2>
+        <p>Apercu global des derniers mouvements panel et bot.</p>
+      </div>
+    </div>
+    {% if recent_activity %}
+    <div class="list-stack">
+      {% for entry in recent_activity %}
+      <div class="list-card">
+        <div class="mini-meta">
+          <span>{{ entry.type }}</span>
+          <span>{{ entry.when_text }}</span>
+        </div>
+        <h3>{{ entry.title }}</h3>
+        <p>{{ entry.detail }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucune activite recente a afficher.</div>
+    {% endif %}
+  </article>
 </section>
 {% endblock %}

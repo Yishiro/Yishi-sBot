@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from threading import Thread
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 
+from yishi_bot.constants import FREE_INVITE_REQUIREMENT, XP_GRADE_LEVELS
 from yishi_bot.helpers import parse_duration
+from yishi_bot.storage import DATABASE_URL
 from yishi_bot.views import GiveawayView
 
 
@@ -19,7 +21,10 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.environ.get("PANEL_SECRET_KEY") or os.environ.get("DISCORD_TOKEN") or "yishi-panel-dev-secret"
 
 _bot = None
-_paris_tz = ZoneInfo("Europe/Paris")
+try:
+    _paris_tz = ZoneInfo("Europe/Paris")
+except ZoneInfoNotFoundError:
+    _paris_tz = timezone.utc
 _panel_started_at = datetime.now(tz=_paris_tz)
 
 CONFIG_FIELDS = (
@@ -49,6 +54,71 @@ CONFIG_FIELDS = (
     ("free_crunchyroll_channel_id", "Salon crunchyroll free"),
     ("daily_level_channel_id", "Salon message progression"),
     ("daily_sales_rules_channel_id", "Salon reglement ventes auto"),
+)
+
+CONFIG_GROUPS = (
+    (
+        "Roles",
+        (
+            "staff_role_id",
+            "archive_role_id",
+            "helper_role_id",
+            "trial_mod_role_id",
+            "moderator_role_id",
+            "responsable_role_id",
+            "admin_role_id",
+            "founder_role_id",
+            "free_access_role_id",
+        ),
+    ),
+    (
+        "Salons publics",
+        (
+            "welcome_channel_id",
+            "announcements_channel_id",
+            "shop_channel_id",
+            "gacha_spin_channel_id",
+            "gacha_winner_channel_id",
+            "giveaways_channel_id",
+            "sales_channel_id",
+            "promo_channel_id",
+            "free_netflix_channel_id",
+            "free_crunchyroll_channel_id",
+            "daily_level_channel_id",
+            "daily_sales_rules_channel_id",
+        ),
+    ),
+    (
+        "Salons staff",
+        (
+            "logs_channel_id",
+            "transcript_logs_channel_id",
+            "gacha_logs_channel_id",
+            "sales_review_channel_id",
+            "staff_prices_channel_id",
+        ),
+    ),
+)
+
+LEVEL_FEATURE_RULES = (
+    ("Aucun bonus vocal", 0),
+    ("Lock / unlock vocal", XP_GRADE_LEVELS["Actif"]),
+    ("Limiter les places", XP_GRADE_LEVELS["Actif"]),
+    ("Stream autorise", XP_GRADE_LEVELS["Actif"]),
+    ("Inviter des membres", XP_GRADE_LEVELS["Confirme"]),
+    ("Kick depuis le vocal", XP_GRADE_LEVELS["Confirme"]),
+    ("Camera autorisee", XP_GRADE_LEVELS["Confirme"]),
+    ("Renommer le vocal", XP_GRADE_LEVELS["Elite"]),
+    ("Transferer le vocal", XP_GRADE_LEVELS["Legende"]),
+)
+
+QUICK_ACTIONS = (
+    ("sync_commands", "Resync slash commands"),
+    ("sync_xp_roles", "Sync roles XP"),
+    ("sync_invite_roles", "Sync roles invitations"),
+    ("sync_free_roles", "Sync acces free"),
+    ("send_level_now", "Envoyer message progression"),
+    ("send_sales_now", "Envoyer reglement ventes"),
 )
 
 
@@ -97,16 +167,74 @@ def parse_int_or_none(value: str) -> int | None:
         return None
 
 
+def parse_any_datetime(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(value, tz=_paris_tz)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=_paris_tz)
+            return dt.astimezone(_paris_tz)
+        except ValueError:
+            return None
+    return None
+
+
 def iso_to_local(value: str | None) -> str:
-    if not value:
+    dt = parse_any_datetime(value)
+    if dt is None:
         return "-"
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            return dt.strftime("%d/%m/%Y %H:%M")
-        return dt.astimezone(_paris_tz).strftime("%d/%m/%Y %H:%M")
-    except ValueError:
-        return value
+    return dt.strftime("%d/%m/%Y %H:%M")
+
+
+def role_name_for(guild: Any | None, role_id: Any) -> str:
+    if guild is None or not role_id:
+        return "-"
+    role = guild.get_role(int(role_id))
+    return role.name if role is not None else f"Role introuvable ({role_id})"
+
+
+def channel_name_for(guild: Any | None, channel_id: Any) -> str:
+    if guild is None or not channel_id:
+        return "-"
+    channel = guild.get_channel(int(channel_id))
+    return f"#{channel.name}" if channel is not None else f"Salon introuvable ({channel_id})"
+
+
+def resolve_config_value(guild: Any | None, key: str, value: Any) -> str:
+    if key.endswith("_role_id"):
+        return role_name_for(guild, value)
+    if key.endswith("_channel_id"):
+        return channel_name_for(guild, value)
+    return str(value) if value not in (None, "") else "-"
+
+
+def config_sections_for(guild: Any | None, config: dict[str, Any]) -> list[dict[str, Any]]:
+    labels = dict(CONFIG_FIELDS)
+    sections: list[dict[str, Any]] = []
+    for title, keys in CONFIG_GROUPS:
+        fields = []
+        for key in keys:
+            fields.append(
+                {
+                    "key": key,
+                    "label": labels.get(key, key),
+                    "value": config.get(key, "") or "",
+                    "current": resolve_config_value(guild, key, config.get(key)),
+                }
+            )
+        sections.append({"title": title, "fields": fields})
+    return sections
+
+
+def build_quick_action_items() -> list[dict[str, str]]:
+    return [{"key": key, "label": label} for key, label in QUICK_ACTIONS]
 
 
 def available_guilds() -> list[Any]:
@@ -139,13 +267,22 @@ def get_dashboard_stats(guild: Any | None) -> dict[str, Any]:
             "giveaways_active": 0,
             "promotions_total": 0,
             "tracked_members": 0,
+            "free_members": 0,
+            "staff_points_total": 0,
         }
 
     ticket_store = bot.get_ticket_store(guild.id)
     sale_store = bot.get_sale_store(guild.id)
     giveaway_store = bot.get_giveaway_store(guild.id)
     promo_store = bot.get_promo_store(guild.id)
-    level_store = bot.level_data.get("members", {})
+    level_store = bot.get_level_store(guild.id)
+    invite_store = bot.get_invite_store(guild.id)
+    config = bot.get_guild_config(guild.id)
+    free_role = guild.get_role(config.get("free_access_role_id")) if config.get("free_access_role_id") else None
+    free_members = 0
+    if free_role is not None:
+        free_members = sum(1 for member in guild.members if free_role in member.roles)
+    staff_points_total = sum(int(value) for value in ticket_store.get("staff_points", {}).values())
 
     return {
         "tickets_open": len(ticket_store.get("channels", {})),
@@ -153,8 +290,237 @@ def get_dashboard_stats(guild: Any | None) -> dict[str, Any]:
         "sales_pending": len(sale_store.get("reviews", {})),
         "giveaways_active": len(giveaway_store.get("giveaways", {})),
         "promotions_total": len(promo_store.get("promotions", [])),
-        "tracked_members": len(level_store),
+        "tracked_members": len(level_store.get("members", {})),
+        "free_members": free_members or sum(1 for count in invite_store.get("weekly_counts", {}).values() if int(count) >= FREE_INVITE_REQUIREMENT),
+        "staff_points_total": staff_points_total,
     }
+
+
+def get_guild_overview(guild: Any | None) -> dict[str, Any]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return {
+            "members": 0,
+            "humans": 0,
+            "bots": 0,
+            "text_channels": 0,
+            "voice_channels": 0,
+            "roles": 0,
+        }
+    humans = sum(1 for member in guild.members if not member.bot)
+    bots = sum(1 for member in guild.members if member.bot)
+    return {
+        "members": guild.member_count or len(guild.members),
+        "humans": humans,
+        "bots": bots,
+        "text_channels": len(guild.text_channels),
+        "voice_channels": len(guild.voice_channels),
+        "roles": len(guild.roles),
+    }
+
+
+def level_rows_for(guild: Any | None) -> list[dict[str, Any]]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return []
+    rows: list[dict[str, Any]] = []
+    for member_id, _xp in bot.get_level_ranking(guild.id):
+        member = guild.get_member(member_id)
+        if member is None or member.bot:
+            continue
+        stats = bot.get_member_level_stats(guild.id, member_id)
+        rows.append(
+            {
+                "member_id": member_id,
+                "member_name": member.display_name,
+                "level": stats["level"],
+                "grade": stats["grade"],
+                "xp": stats["xp"],
+                "messages": stats["message_count"],
+                "voice": bot.format_voice_duration(stats["voice_seconds"]),
+                "rank": bot.get_member_rank_position(guild.id, member_id),
+            }
+        )
+    return rows
+
+
+def level_detail_for(guild: Any | None, member_id: int | None) -> dict[str, Any] | None:
+    bot = get_bot()
+    if bot is None or guild is None or member_id is None:
+        return None
+    member = guild.get_member(member_id)
+    if member is None:
+        return None
+    stats = bot.get_member_level_stats(guild.id, member_id)
+    rank = bot.get_member_rank_position(guild.id, member_id)
+    unlocked = [label for label, required in LEVEL_FEATURE_RULES if stats["level"] >= required]
+    locked = [f"{label} (niveau {required}+)" for label, required in LEVEL_FEATURE_RULES if stats["level"] < required]
+    return {
+        "member": member,
+        "stats": stats,
+        "rank": rank,
+        "unlocked": unlocked,
+        "locked": locked,
+        "xp_role_name": bot.get_member_grade(stats["level"]),
+        "voice_text": bot.format_voice_duration(stats["voice_seconds"]),
+    }
+
+
+def invite_rows_for(guild: Any | None) -> list[dict[str, Any]]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return []
+    store = bot.get_invite_store(guild.id)
+    config = bot.get_guild_config(guild.id)
+    free_role = guild.get_role(config.get("free_access_role_id")) if config.get("free_access_role_id") else None
+    all_user_ids = set(store.get("counts", {}).keys()) | set(store.get("weekly_counts", {}).keys())
+    rows: list[dict[str, Any]] = []
+    for user_id in all_user_ids:
+        member = guild.get_member(int(user_id))
+        total = int(store.get("counts", {}).get(user_id, 0))
+        weekly = int(store.get("weekly_counts", {}).get(user_id, 0))
+        if total <= 0 and weekly <= 0:
+            continue
+        rows.append(
+            {
+                "member_id": int(user_id),
+                "member_name": member.display_name if member else user_id,
+                "total": total,
+                "weekly": weekly,
+                "from_now": bot.get_invite_role_count_from_now(guild.id, int(user_id)),
+                "free_access": (
+                    "Oui"
+                    if member is not None and free_role is not None and free_role in member.roles
+                    else ("Oui" if weekly >= FREE_INVITE_REQUIREMENT else "Non")
+                ),
+            }
+        )
+    rows.sort(key=lambda item: (item["weekly"], item["total"]), reverse=True)
+    return rows
+
+
+def activity_feed_for(guild: Any | None, *, limit: int = 40) -> list[dict[str, Any]]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return []
+
+    entries: list[dict[str, Any]] = []
+
+    ticket_store = bot.get_ticket_store(guild.id)
+    for channel_id, ticket in ticket_store.get("channels", {}).items():
+        entries.append(
+            {
+                "type": "Ticket",
+                "title": f"{ticket.get('type', 'ticket').title()} • {ticket.get('status', 'open')}",
+                "detail": f"Salon #{channel_id} • Owner {ticket.get('owner_id', '-')}",
+                "when": parse_any_datetime(ticket.get("claimed_at")) or parse_any_datetime(ticket.get("created_at")),
+            }
+        )
+
+    sale_store = bot.get_sale_store(guild.id)
+    for review_message_id, sale in sale_store.get("reviews", {}).items():
+        entries.append(
+            {
+                "type": "Vente",
+                "title": f"Validation en attente • {sale.get('product', '-')}",
+                "detail": f"Review {review_message_id} • vendeur {sale.get('seller_id', '-')}",
+                "when": parse_any_datetime(sale.get("created_at")),
+            }
+        )
+    for message_id, sale in sale_store.get("messages", {}).items():
+        entries.append(
+            {
+                "type": "Vente",
+                "title": f"{sale.get('status', 'active').title()} • {sale.get('product', '-')}",
+                "detail": f"Annonce {message_id} • vendeur {sale.get('seller_id', '-')}",
+                "when": parse_any_datetime(sale.get("created_at")),
+            }
+        )
+
+    for item in bot.gacha_data.get("grant_history", []):
+        entries.append(
+            {
+                "type": "Gacha",
+                "title": f"{item.get('action', 'add').title()} {item.get('spin_type', '-')} x{item.get('quantity', 0)}",
+                "detail": f"{item.get('target_name', item.get('target_id', '-'))} • {item.get('actor_name', '-')}",
+                "when": parse_any_datetime(item.get("timestamp")),
+            }
+        )
+
+    for item in bot.get_promo_store(guild.id).get("promotions", []):
+        entries.append(
+            {
+                "type": "Promo",
+                "title": item.get("title", "Promotion"),
+                "detail": f"Priorite {item.get('priority', 1)} • {'Active' if item.get('active', True) else 'Off'}",
+                "when": parse_any_datetime(item.get("last_posted_at")),
+            }
+        )
+
+    giveaway_entries = bot.get_giveaway_entries(guild.id)
+    for giveaway in giveaway_entries.values():
+        entries.append(
+            {
+                "type": "Giveaway",
+                "title": f"{giveaway.get('status', 'active').title()} • {giveaway.get('prize', '-')}",
+                "detail": f"Message {giveaway.get('message_id', '-')} • {len(giveaway.get('participants', []))} participants",
+                "when": parse_any_datetime(giveaway.get("end_at")),
+            }
+        )
+
+    for member_id, data in bot.get_giveaway_blacklist(guild.id).items():
+        entries.append(
+            {
+                "type": "Blacklist",
+                "title": f"Membre {member_id} blacklist giveaway",
+                "detail": data.get("reason", "Aucune raison"),
+                "when": parse_any_datetime(data.get("added_at")),
+            }
+        )
+
+    entries = [entry for entry in entries if entry["when"] is not None]
+    entries.sort(key=lambda item: item["when"], reverse=True)
+    return [
+        {
+            **entry,
+            "when_text": iso_to_local(entry["when"].isoformat()),
+        }
+        for entry in entries[:limit]
+    ]
+
+
+def run_quick_action(bot: Any, guild: Any, action: str) -> tuple[str, str]:
+    if action == "sync_commands":
+        ok, message = run_bot_coroutine(bot.sync_commands_once(force=True), timeout=90)
+        return ("success" if ok else "error", "Commandes resynchronisees." if ok else f"Echec: {message}")
+    if action == "sync_xp_roles":
+        ok, message = run_bot_coroutine(bot.sync_all_xp_roles(guild), timeout=180)
+        return ("success" if ok else "error", "Roles XP synchronises." if ok else f"Echec: {message}")
+    if action == "sync_invite_roles":
+        ok, message = run_bot_coroutine(bot.sync_all_invite_roles(guild), timeout=180)
+        return ("success" if ok else "error", "Roles invitations synchronises." if ok else f"Echec: {message}")
+    if action == "sync_free_roles":
+        ok, message = run_bot_coroutine(bot.sync_all_free_access_roles(guild), timeout=180)
+        return ("success" if ok else "error", "Acces free synchronises." if ok else f"Echec: {message}")
+    if action == "send_level_now":
+        async def _send_level_now() -> None:
+            channel = guild.get_channel(bot.get_daily_level_channel_id(guild.id))
+            if channel is None:
+                raise RuntimeError("Salon progression introuvable.")
+            await channel.send(bot.build_daily_level_message(guild.id))
+
+        ok, message = run_bot_coroutine(_send_level_now(), timeout=60)
+        return ("success" if ok else "error", "Message progression envoye." if ok else f"Echec: {message}")
+    if action == "send_sales_now":
+        async def _send_sales_now() -> None:
+            channel = guild.get_channel(bot.get_daily_sales_rules_channel_id(guild.id))
+            if channel is None:
+                raise RuntimeError("Salon ventes introuvable.")
+            await channel.send(embed=bot.build_sales_rules_embed())
+
+        ok, message = run_bot_coroutine(_send_sales_now(), timeout=60)
+        return ("success" if ok else "error", "Reglement ventes envoye." if ok else f"Echec: {message}")
+    return ("error", "Action inconnue.")
 
 
 def panel_context(active_page: str) -> dict[str, Any]:
@@ -219,12 +585,19 @@ def logout():
     return redirect(url_for("login"))
 
 
-@app.route("/dashboard")
+@app.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
     guild = selected_guild()
-    stats = get_dashboard_stats(guild)
     bot = get_bot()
+    if request.method == "POST":
+        if bot is None or guild is None:
+            flash("Bot ou serveur indisponible.", "error")
+        else:
+            category, message = run_quick_action(bot, guild, request.form.get("action", ""))
+            flash(message, category)
+        return redirect(url_for("dashboard", guild_id=guild.id if guild else None))
+    stats = get_dashboard_stats(guild)
     recent_promos = []
     if bot is not None and guild is not None:
         recent_promos = sorted(
@@ -235,6 +608,9 @@ def dashboard():
         "dashboard.html",
         stats=stats,
         recent_promos=recent_promos,
+        overview=get_guild_overview(guild),
+        quick_actions=build_quick_action_items(),
+        recent_activity=activity_feed_for(guild, limit=8),
         **panel_context("dashboard"),
     )
 
@@ -246,7 +622,7 @@ def config_page():
     guild = selected_guild()
     if bot is None or guild is None:
         flash("Bot ou serveur indisponible.", "error")
-        return render_template("config.html", config_fields=CONFIG_FIELDS, config={}, **panel_context("config"))
+        return render_template("config.html", config_sections=[], config={}, **panel_context("config"))
 
     config = bot.get_guild_config(guild.id)
     if request.method == "POST":
@@ -259,7 +635,7 @@ def config_page():
 
     return render_template(
         "config.html",
-        config_fields=CONFIG_FIELDS,
+        config_sections=config_sections_for(guild, config),
         config=config,
         **panel_context("config"),
     )
@@ -285,27 +661,9 @@ def auto_messages():
             config["daily_level_message"] = request.form.get("daily_level_message", "").strip()
             bot.save_config()
             flash("Messages automatiques mis a jour.", "success")
-        elif action == "send_level_now":
-            async def _send_level_now() -> None:
-                channel = guild.get_channel(bot.get_daily_level_channel_id(guild.id))
-                if channel is None:
-                    raise RuntimeError("Salon progression introuvable.")
-                await channel.send(bot.build_daily_level_message(guild.id))
-
-            ok, message = run_bot_coroutine(_send_level_now())
-            flash("Message progression envoye." if ok else f"Echec: {message}", "success" if ok else "error")
-        elif action == "send_sales_now":
-            async def _send_sales_now() -> None:
-                channel = guild.get_channel(bot.get_daily_sales_rules_channel_id(guild.id))
-                if channel is None:
-                    raise RuntimeError("Salon ventes introuvable.")
-                await channel.send(embed=bot.build_sales_rules_embed())
-
-            ok, message = run_bot_coroutine(_send_sales_now())
-            flash("Reglement ventes envoye." if ok else f"Echec: {message}", "success" if ok else "error")
-        elif action == "sync_commands":
-            ok, message = run_bot_coroutine(bot.sync_commands_once(force=True), timeout=60)
-            flash("Commandes resynchronisees." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action in {item[0] for item in QUICK_ACTIONS}:
+            category, message = run_quick_action(bot, guild, action)
+            flash(message, category)
 
         return redirect(url_for("auto_messages", guild_id=guild.id))
 
@@ -457,10 +815,21 @@ def tickets_page():
 
     open_tickets.sort(key=lambda item: item["channel_name"].lower())
     archived_tickets.sort(key=lambda item: item["channel_name"].lower())
+    staff_points = []
+    for user_id, points in bot.get_ticket_store(guild.id).get("staff_points", {}).items():
+        member = guild.get_member(int(user_id))
+        staff_points.append(
+            {
+                "member_name": member.display_name if member else user_id,
+                "points": int(points),
+            }
+        )
+    staff_points.sort(key=lambda item: item["points"], reverse=True)
     return render_template(
         "tickets_panel.html",
         open_tickets=open_tickets,
         archived_tickets=archived_tickets,
+        staff_points=staff_points[:15],
         **panel_context("tickets"),
     )
 
@@ -532,6 +901,11 @@ def sales_page():
         pending_sales=pending_sales,
         active_sales=active_sales,
         reserved_sales=reserved_sales,
+        sales_stats={
+            "pending": len(pending_sales),
+            "active": len(active_sales),
+            "reserved": len(reserved_sales),
+        },
         **panel_context("sales"),
     )
 
@@ -545,6 +919,7 @@ def giveaways_page():
         flash("Bot ou serveur indisponible.", "error")
         return render_template("giveaways_panel.html", active_giveaways=[], ended_giveaways=[], blacklist_entries=[], **panel_context("giveaways"))
 
+    entries = bot.get_giveaway_entries(guild.id)
     if request.method == "POST":
         action = request.form.get("action", "")
         if action == "create":
@@ -626,9 +1001,27 @@ def giveaways_page():
                 bot.get_giveaway_blacklist(guild.id).pop(str(member_id), None)
                 bot.save_giveaways()
                 flash("Membre retire de la blacklist giveaways.", "success")
+        elif action == "force_winner":
+            message_id = parse_int_or_none(request.form.get("message_id", ""))
+            member_id = parse_int_or_none(request.form.get("member_id", ""))
+            giveaway = entries.get(str(message_id)) if message_id is not None else None
+            if giveaway is None or member_id is None:
+                flash("Giveaway ou membre invalide.", "error")
+            else:
+                giveaway["forced_winner_id"] = member_id
+                bot.save_giveaways()
+                flash("Forced winner enregistre.", "success")
+        elif action == "clear_forced":
+            message_id = parse_int_or_none(request.form.get("message_id", ""))
+            giveaway = entries.get(str(message_id)) if message_id is not None else None
+            if giveaway is None:
+                flash("Giveaway introuvable.", "error")
+            else:
+                giveaway["forced_winner_id"] = None
+                bot.save_giveaways()
+                flash("Forced winner retire.", "success")
         return redirect(url_for("giveaways_page", guild_id=guild.id))
 
-    entries = bot.get_giveaway_entries(guild.id)
     active_giveaways: list[dict[str, Any]] = []
     ended_giveaways: list[dict[str, Any]] = []
     for giveaway in entries.values():
@@ -643,6 +1036,7 @@ def giveaways_page():
             "forced_winner_id": giveaway.get("forced_winner_id"),
             "end_at": giveaway.get("end_at", 0),
             "winners": winners,
+            "participants_preview": ", ".join(str(item) for item in participants[:8]) if participants else "-",
         }
         if giveaway.get("status") == "active":
             active_giveaways.append(row)
@@ -717,6 +1111,14 @@ def gacha_page():
             else:
                 bot.add_member_note(member_id, guild.owner_id, "Owner Panel", note)
                 flash("Note ajoutee.", "success")
+        elif action == "note_remove":
+            note_index = parse_int_or_none(request.form.get("note_index", ""))
+            if note_index is None:
+                flash("Index note invalide.", "error")
+            elif bot.remove_member_note(member_id, note_index) is None:
+                flash("Note introuvable.", "error")
+            else:
+                flash("Note retiree.", "success")
 
         target = member_id if member_id is not None else request.form.get("target_member_id", "")
         return redirect(url_for("gacha_page", guild_id=guild.id, member_id=target))
@@ -782,6 +1184,9 @@ def invites_page():
         if action == "refresh_free":
             ok, message = run_bot_coroutine(bot.sync_all_free_access_roles(guild), timeout=120)
             flash("Acces free mis a jour." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "sync_invite_roles":
+            ok, message = run_bot_coroutine(bot.sync_all_invite_roles(guild), timeout=180)
+            flash("Roles invitations synchronises." if ok else f"Echec: {message}", "success" if ok else "error")
         elif action == "reset_weekly":
             store["weekly_counts"] = {}
             store["last_weekly_reset_key"] = datetime.now(tz=_paris_tz).strftime("%G-W%V")
@@ -812,38 +1217,116 @@ def invites_page():
 
         return redirect(url_for("invites_page", guild_id=guild.id))
 
-    all_user_ids = set(store.get("counts", {}).keys()) | set(store.get("weekly_counts", {}).keys())
-    rows = []
+    rows = invite_rows_for(guild)
     free_role = guild.get_role(config["free_access_role_id"]) if config.get("free_access_role_id") else None
-    for user_id in all_user_ids:
-        member = guild.get_member(int(user_id))
-        total = int(store.get("counts", {}).get(user_id, 0))
-        weekly = int(store.get("weekly_counts", {}).get(user_id, 0))
-        if total <= 0 and weekly <= 0:
-            continue
-        inviter_from_now = bot.get_invite_role_count_from_now(guild.id, int(user_id))
-        has_free_role = free_role in member.roles if member is not None and free_role is not None else False
-        rows.append(
-            {
-                "member_id": int(user_id),
-                "member_name": member.display_name if member else user_id,
-                "total": total,
-                "weekly": weekly,
-                "from_now": inviter_from_now,
-                "free_access": "Oui" if has_free_role or weekly >= 2 else "Non",
-            }
-        )
-
-    rows.sort(key=lambda item: (item["weekly"], item["total"]), reverse=True)
     weekly_reset_label = store.get("last_weekly_reset_key") or "Jamais"
 
     return render_template(
         "invites_panel.html",
         invite_rows=rows,
         free_role_name=free_role.name if free_role is not None else "-",
-        weekly_requirement=2,
+        weekly_requirement=FREE_INVITE_REQUIREMENT,
         weekly_reset_label=weekly_reset_label,
         **panel_context("invites"),
+    )
+
+
+@app.route("/levels", methods=["GET", "POST"])
+@login_required
+def levels_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template(
+            "levels_panel.html",
+            leaderboard=[],
+            selected_profile=None,
+            grade_rules=LEVEL_FEATURE_RULES,
+            **panel_context("levels"),
+        )
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        if action == "sync_xp_roles":
+            category, message = run_quick_action(bot, guild, action)
+            flash(message, category)
+            return redirect(url_for("levels_page", guild_id=guild.id))
+        if action == "set_level":
+            member_id = parse_int_or_none(request.form.get("member_id", ""))
+            target_level = parse_int_or_none(request.form.get("target_level", ""))
+            member = guild.get_member(member_id) if member_id is not None else None
+            if member is None or target_level is None:
+                flash("Membre ou niveau invalide.", "error")
+            else:
+                async def _set_level() -> dict[str, Any]:
+                    return await bot.set_member_level(member, target_level)
+
+                future = asyncio.run_coroutine_threadsafe(_set_level(), bot.loop)
+                try:
+                    result = future.result(timeout=60)
+                    flash(
+                        f"Niveau mis a jour: {member.display_name} passe de {result['before_level']} a {result['after_level']}.",
+                        "success",
+                    )
+                except Exception as exc:
+                    flash(f"Echec: {exc}", "error")
+            return redirect(url_for("levels_page", guild_id=guild.id, member_id=member_id or ""))
+
+    leaderboard = level_rows_for(guild)
+    selected_member_id = parse_int_or_none(request.args.get("member_id", ""))
+    selected_profile = level_detail_for(guild, selected_member_id)
+    return render_template(
+        "levels_panel.html",
+        leaderboard=leaderboard[:30],
+        selected_profile=selected_profile,
+        grade_rules=LEVEL_FEATURE_RULES,
+        **panel_context("levels"),
+    )
+
+
+@app.route("/logs")
+@login_required
+def logs_page():
+    guild = selected_guild()
+    return render_template(
+        "logs_panel.html",
+        entries=activity_feed_for(guild, limit=60),
+        **panel_context("logs"),
+    )
+
+
+@app.route("/security", methods=["GET", "POST"])
+@login_required
+def security_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template("security.html", security={}, quick_actions=[], **panel_context("security"))
+
+    if request.method == "POST":
+        category, message = run_quick_action(bot, guild, request.form.get("action", ""))
+        flash(message, category)
+        return redirect(url_for("security_page", guild_id=guild.id))
+
+    security = {
+        "panel_enabled": panel_enabled(),
+        "database_enabled": bool(DATABASE_URL),
+        "secret_key_set": bool(os.environ.get("PANEL_SECRET_KEY")),
+        "username": panel_username(),
+        "session_active": is_authenticated(),
+        "bot_online": bool(bot and not bot.is_closed()),
+        "guild_synced": guild.id in getattr(bot, "synced_guild_ids", set()),
+        "guild_owner_id": guild.owner_id,
+        "guild_count": len(bot.guilds),
+        "latency_ms": round(bot.latency * 1000) if getattr(bot, "latency", None) is not None else 0,
+    }
+    return render_template(
+        "security.html",
+        security=security,
+        quick_actions=build_quick_action_items(),
+        **panel_context("security"),
     )
 
 

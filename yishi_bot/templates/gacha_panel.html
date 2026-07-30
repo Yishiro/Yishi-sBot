@@ -1,11 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Gacha • Yishi Panel{% endblock %}
+{% block title %}Gacha - Yishi Panel{% endblock %}
 {% block header %}Gacha{% endblock %}
 {% block content %}
 <section class="panel-section">
   <div class="section-head">
-    <h2>Stocks de spins</h2>
-    <p>Vue globale des stocks actuellement actifs.</p>
+    <div>
+      <h2>Stocks spins</h2>
+      <p>Vue rapide des membres qui ont des spins disponibles.</p>
+    </div>
   </div>
   {% if stocks %}
   <div class="table-wrap">
@@ -17,152 +19,143 @@
           <th>Advanced</th>
           <th>Deluxe</th>
           <th>Total</th>
-          <th>Ouvrir</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
-        {% for stock in stocks %}
+        {% for row in stocks %}
         <tr>
-          <td>{{ stock.member_name }}</td>
-          <td>{{ stock.basic }}</td>
-          <td>{{ stock.advanced }}</td>
-          <td>{{ stock.deluxe }}</td>
-          <td>{{ stock.total }}</td>
-          <td><a class="button secondary" href="{{ url_for('gacha_page', guild_id=selected_guild.id if selected_guild else None, member_id=stock.member_id) }}">Voir</a></td>
+          <td>{{ row.member_name }}</td>
+          <td>{{ row.basic }}</td>
+          <td>{{ row.advanced }}</td>
+          <td>{{ row.deluxe }}</td>
+          <td>{{ row.total }}</td>
+          <td><a class="button secondary" href="{{ url_for('gacha_page', guild_id=selected_guild.id if selected_guild else None, member_id=row.member_id) }}">Gerer</a></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <div class="empty-state">Aucun stock actif.</div>
+  <div class="empty-state">Aucun stock gacha detecte.</div>
   {% endif %}
 </section>
 
-<section class="panel-section">
-  <div class="section-head">
-    <h2>Gestion membre</h2>
-    <p>Ajoute/retire des spins ou note un joueur par son ID.</p>
-  </div>
-  <form method="get" class="form-grid form-grid-double">
-    <label>
-      <span>ID membre</span>
-      <input type="text" name="member_id" value="{{ selected_member_id or '' }}" placeholder="ID Discord">
-    </label>
-    <button type="submit" class="button">Charger le profil</button>
-  </form>
-
-  {% if selected_member_id %}
-  <div class="cards-grid" style="margin-top:18px;">
-    <article class="stat-card">
-      <span>Membre</span>
-      <strong>{{ selected_member.display_name if selected_member else selected_member_id }}</strong>
-    </article>
-    <article class="stat-card">
-      <span>Basic</span>
-      <strong>{{ selected_inventory.basic if selected_inventory else 0 }}</strong>
-    </article>
-    <article class="stat-card">
-      <span>Advanced</span>
-      <strong>{{ selected_inventory.advanced if selected_inventory else 0 }}</strong>
-    </article>
-    <article class="stat-card">
-      <span>Deluxe</span>
-      <strong>{{ selected_inventory.deluxe if selected_inventory else 0 }}</strong>
-    </article>
-  </div>
-
-  <form method="post" class="form-grid form-grid-double" style="margin-top:18px;">
-    <input type="hidden" name="member_id" value="{{ selected_member_id }}">
-    <label>
-      <span>Type de spin</span>
-      <select name="spin_type">
-        <option value="basic">Basic</option>
-        <option value="advanced">Advanced</option>
-        <option value="deluxe">Deluxe</option>
-      </select>
-    </label>
-    <label>
-      <span>Quantité</span>
-      <input type="number" name="quantity" min="1" value="1">
-    </label>
-    <label>
-      <span>Raison</span>
-      <input type="text" name="reason" placeholder="Ex: compensation, offre, achat">
-    </label>
-    <div class="promo-actions">
-      <button type="submit" name="action" value="add_spin" class="button">Ajouter des spins</button>
-      <button type="submit" name="action" value="remove_spin" class="button danger">Retirer des spins</button>
-    </div>
-  </form>
-
-  <form method="post" class="form-grid" style="margin-top:18px;">
-    <input type="hidden" name="member_id" value="{{ selected_member_id }}">
-    <label>
-      <span>Note staff</span>
-      <textarea name="note" rows="4" placeholder="Ajouter une note sur ce joueur"></textarea>
-    </label>
-    <button type="submit" name="action" value="note_add" class="button secondary">Ajouter une note</button>
-  </form>
-
-  <section class="panel-section" style="margin-top:18px;">
+<section class="panel-section two-grid">
+  <article>
     <div class="section-head">
-      <h2>Notes staff</h2>
-      <p>Dernières notes enregistrées.</p>
+      <div>
+        <h2>Gestion membre</h2>
+        <p>Ajout, retrait de spins et notes staff.</p>
+      </div>
+    </div>
+    <form method="post" class="form-grid">
+      <label>
+        <span>ID membre</span>
+        <input type="text" name="member_id" value="{{ selected_member_id or '' }}" placeholder="ID Discord">
+      </label>
+      <label>
+        <span>Type de spin</span>
+        <select name="spin_type">
+          <option value="basic">Basic</option>
+          <option value="advanced">Advanced</option>
+          <option value="deluxe">Deluxe</option>
+        </select>
+      </label>
+      <label>
+        <span>Quantite</span>
+        <input type="number" name="quantity" min="1" value="1">
+      </label>
+      <label>
+        <span>Raison</span>
+        <input type="text" name="reason" placeholder="Optionnel">
+      </label>
+      <div class="form-actions">
+        <button type="submit" name="action" value="add_spin" class="button">Ajouter</button>
+        <button type="submit" name="action" value="remove_spin" class="button danger">Retirer</button>
+      </div>
+    </form>
+    <div class="split-line"></div>
+    <form method="post" class="form-grid">
+      <label>
+        <span>ID membre</span>
+        <input type="text" name="member_id" value="{{ selected_member_id or '' }}" placeholder="ID Discord">
+      </label>
+      <label>
+        <span>Note staff</span>
+        <textarea name="note" placeholder="Note interne"></textarea>
+      </label>
+      <button type="submit" name="action" value="note_add" class="button">Ajouter une note</button>
+    </form>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Membre selectionne</h2>
+        <p>{% if selected_member %}{{ selected_member.display_name }}{% else %}Choisis un membre depuis la liste ou via son ID.{% endif %}</p>
+      </div>
+    </div>
+    {% if selected_inventory %}
+    <div class="metric-grid">
+      <div class="list-card"><span class="kpi-label">Basic</span><div class="kpi-value">{{ selected_inventory.basic }}</div></div>
+      <div class="list-card"><span class="kpi-label">Advanced</span><div class="kpi-value">{{ selected_inventory.advanced }}</div></div>
+      <div class="list-card"><span class="kpi-label">Deluxe</span><div class="kpi-value">{{ selected_inventory.deluxe }}</div></div>
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun membre selectionne.</div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Notes staff</h2>
+        <p>Historique rapide des notes sur le membre.</p>
+      </div>
     </div>
     {% if selected_notes %}
-    <div class="promo-list">
-      {% for note in selected_notes|reverse %}
-      <article class="promo-card">
-        <div class="promo-meta">
-          <span>{{ note.author_name }}</span>
-          <span>{{ note.timestamp }}</span>
-        </div>
+    <div class="list-stack">
+      {% for note in selected_notes %}
+      <div class="list-card">
+        <div class="mini-meta"><span>{{ note.author_name }}</span><span>{{ note.timestamp }}</span></div>
         <p>{{ note.content }}</p>
-      </article>
+        <form method="post" style="margin-top:12px;">
+          <input type="hidden" name="action" value="note_remove">
+          <input type="hidden" name="member_id" value="{{ selected_member_id }}">
+          <input type="hidden" name="note_index" value="{{ loop.index0 }}">
+          <button type="submit" class="button secondary">Retirer</button>
+        </form>
+      </div>
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">Aucune note.</div>
+    <div class="empty-state">Aucune note pour ce membre.</div>
     {% endif %}
-  </section>
+  </article>
 
-  <section class="panel-section" style="margin-top:18px;">
+  <article>
     <div class="section-head">
-      <h2>Historique ajustements</h2>
-      <p>20 derniers mouvements de stock.</p>
+      <div>
+        <h2>Historique des ajustements</h2>
+        <p>Dernieres attributions/retraits de spins.</p>
+      </div>
     </div>
     {% if selected_history %}
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Action</th>
-            <th>Type</th>
-            <th>Quantité</th>
-            <th>Total après</th>
-            <th>Raison</th>
-            <th>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for entry in selected_history %}
-          <tr>
-            <td>{{ entry.action }}</td>
-            <td>{{ entry.spin_type }}</td>
-            <td>{{ entry.quantity }}</td>
-            <td>{{ entry.total_after }}</td>
-            <td>{{ entry.reason or '-' }}</td>
-            <td>{{ entry.timestamp }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="list-stack">
+      {% for item in selected_history %}
+      <div class="list-card">
+        <div class="mini-meta"><span>{{ item.action }}</span><span>{{ item.spin_type }}</span><span>x{{ item.quantity }}</span></div>
+        <p>{{ item.actor_name }} • total apres: {{ item.total_after }}</p>
+        <p>{{ item.reason or "Aucune raison" }}</p>
+      </div>
+      {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">Aucun historique.</div>
+    <div class="empty-state">Aucun historique pour ce membre.</div>
     {% endif %}
-  </section>
-  {% endif %}
+  </article>
 </section>
 {% endblock %}
