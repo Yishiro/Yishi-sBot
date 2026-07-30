@@ -8,7 +8,11 @@ from threading import Thread
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import discord
 from flask import Flask, flash, redirect, render_template, request, session, url_for
+
+from yishi_bot.helpers import parse_duration
+from yishi_bot.views import GiveawayView
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -543,7 +547,54 @@ def giveaways_page():
 
     if request.method == "POST":
         action = request.form.get("action", "")
-        if action in {"end", "reroll"}:
+        if action == "create":
+            channel_id = parse_int_or_none(request.form.get("channel_id", ""))
+            prize = request.form.get("prize", "").strip()
+            duration = request.form.get("duration", "").strip()
+            winners_count = parse_int_or_none(request.form.get("winners_count", "")) or 0
+            seconds = parse_duration(duration) if duration else None
+
+            if channel_id is None or not prize or seconds is None or winners_count <= 0:
+                flash("Parametres giveaway invalides.", "error")
+            else:
+                async def _create_giveaway() -> None:
+                    channel = guild.get_channel(channel_id)
+                    if not isinstance(channel, discord.TextChannel):
+                        raise RuntimeError("Salon giveaway introuvable.")
+
+                    end_at = int(discord.utils.utcnow().timestamp()) + seconds
+                    embed = discord.Embed(
+                        title="🎉 Giveaway",
+                        description=(
+                            f"Prix : **{prize}**\n"
+                            f"Gagnant(s) : **{winners_count}**\n"
+                            f"Fin : <t:{end_at}:R>\n"
+                            "Chances bonus : **rôles invitations + Server Booster**\n\n"
+                            "Clique sur Participer pour rejoindre le giveaway."
+                        ),
+                        color=discord.Color.gold(),
+                    )
+                    message = await channel.send(embed=embed, view=GiveawayView(bot))
+
+                    store = bot.get_giveaway_entries(guild.id)
+                    store[str(message.id)] = {
+                        "message_id": message.id,
+                        "channel_id": channel.id,
+                        "prize": prize,
+                        "winners_count": int(winners_count),
+                        "participants": [],
+                        "winners": [],
+                        "forced_winner_id": None,
+                        "end_at": end_at,
+                        "status": "active",
+                        "created_by": guild.owner_id,
+                    }
+                    bot.save_giveaways()
+                    bot.schedule_giveaway_end(guild.id, message.id, end_at)
+
+                ok, message = run_bot_coroutine(_create_giveaway(), timeout=90)
+                flash("Giveaway cree." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action in {"end", "reroll"}:
             message_id = parse_int_or_none(request.form.get("message_id", ""))
             if message_id is None:
                 flash("ID giveaway invalide.", "error")
@@ -704,6 +755,95 @@ def gacha_page():
         selected_notes=selected_notes,
         selected_history=selected_history,
         **panel_context("gacha"),
+    )
+
+
+@app.route("/invites", methods=["GET", "POST"])
+@login_required
+def invites_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template(
+            "invites_panel.html",
+            invite_rows=[],
+            free_role_name="-",
+            weekly_requirement=2,
+            weekly_reset_label="-",
+            **panel_context("invites"),
+        )
+
+    store = bot.get_invite_store(guild.id)
+    config = bot.get_guild_config(guild.id)
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        if action == "refresh_free":
+            ok, message = run_bot_coroutine(bot.sync_all_free_access_roles(guild), timeout=120)
+            flash("Acces free mis a jour." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "reset_weekly":
+            store["weekly_counts"] = {}
+            store["last_weekly_reset_key"] = datetime.now(tz=_paris_tz).strftime("%G-W%V")
+            bot.save_invites()
+            ok, message = run_bot_coroutine(bot.sync_all_free_access_roles(guild), timeout=120)
+            flash("Compteur weekly reset." if ok else f"Reset fait mais sync en echec: {message}", "success" if ok else "error")
+        elif action == "post_free":
+            service = request.form.get("service", "").strip().lower()
+            content = request.form.get("content", "").strip()
+            key = "free_netflix_channel_id" if service == "netflix" else "free_crunchyroll_channel_id"
+            channel = guild.get_channel(config.get(key))
+            if not isinstance(channel, discord.TextChannel):
+                flash("Salon free introuvable.", "error")
+            elif not content:
+                flash("Contenu vide.", "error")
+            else:
+                color = discord.Color.red() if service == "netflix" else discord.Color.orange()
+                async def _post_free() -> None:
+                    embed = discord.Embed(
+                        title=f"{service.title()} Free",
+                        description=content,
+                        color=color,
+                    )
+                    embed.set_footer(text="Publie via owner panel")
+                    await channel.send(embed=embed)
+                ok, message = run_bot_coroutine(_post_free(), timeout=60)
+                flash("Publication envoyee." if ok else f"Echec: {message}", "success" if ok else "error")
+
+        return redirect(url_for("invites_page", guild_id=guild.id))
+
+    all_user_ids = set(store.get("counts", {}).keys()) | set(store.get("weekly_counts", {}).keys())
+    rows = []
+    free_role = guild.get_role(config["free_access_role_id"]) if config.get("free_access_role_id") else None
+    for user_id in all_user_ids:
+        member = guild.get_member(int(user_id))
+        total = int(store.get("counts", {}).get(user_id, 0))
+        weekly = int(store.get("weekly_counts", {}).get(user_id, 0))
+        if total <= 0 and weekly <= 0:
+            continue
+        inviter_from_now = bot.get_invite_role_count_from_now(guild.id, int(user_id))
+        has_free_role = free_role in member.roles if member is not None and free_role is not None else False
+        rows.append(
+            {
+                "member_id": int(user_id),
+                "member_name": member.display_name if member else user_id,
+                "total": total,
+                "weekly": weekly,
+                "from_now": inviter_from_now,
+                "free_access": "Oui" if has_free_role or weekly >= 2 else "Non",
+            }
+        )
+
+    rows.sort(key=lambda item: (item["weekly"], item["total"]), reverse=True)
+    weekly_reset_label = store.get("last_weekly_reset_key") or "Jamais"
+
+    return render_template(
+        "invites_panel.html",
+        invite_rows=rows,
+        free_role_name=free_role.name if free_role is not None else "-",
+        weekly_requirement=2,
+        weekly_reset_label=weekly_reset_label,
+        **panel_context("invites"),
     )
 
 

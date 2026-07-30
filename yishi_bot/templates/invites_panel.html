@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Invitations • Yishi Panel{% endblock %}
+{% block header %}Invitations & Free Accounts{% endblock %}
+{% block content %}
+<section class="cards-grid">
+  <article class="stat-card">
+    <span>Rôle free</span>
+    <strong>{{ free_role_name }}</strong>
+  </article>
+  <article class="stat-card">
+    <span>Condition weekly</span>
+    <strong>{{ weekly_requirement }} invites</strong>
+  </article>
+  <article class="stat-card">
+    <span>Dernier reset weekly</span>
+    <strong>{{ weekly_reset_label }}</strong>
+  </article>
+</section>
+
+<section class="cards-grid action-grid" style="margin-top:22px;">
+  <form method="post" class="action-card">
+    <input type="hidden" name="action" value="refresh_free">
+    <h3>Refresh free</h3>
+    <p>Resynchronise tous les rôles d’accès free.</p>
+    <button type="submit" class="button secondary">Mettre à jour</button>
+  </form>
+  <form method="post" class="action-card">
+    <input type="hidden" name="action" value="reset_weekly">
+    <h3>Reset weekly</h3>
+    <p>Remet les invitations weekly à zéro et retire les accès free.</p>
+    <button type="submit" class="button danger">Reset weekly</button>
+  </form>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Publier un compte free</h2>
+    <p>Envoie rapidement un compte Netflix ou Crunchyroll dans le bon salon.</p>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="action" value="post_free">
+    <label>
+      <span>Service</span>
+      <select name="service">
+        <option value="netflix">Netflix</option>
+        <option value="crunchyroll">Crunchyroll</option>
+      </select>
+    </label>
+    <label>
+      <span>Contenu</span>
+      <textarea name="content" rows="6" placeholder="Ex: Email / mot de passe / consignes"></textarea>
+    </label>
+    <button type="submit" class="button">Publier</button>
+  </form>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Classement invitations</h2>
+    <p>Total, weekly, compteur depuis la baseline et accès free actuel.</p>
+  </div>
+  {% if invite_rows %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Membre</th>
+          <th>Total</th>
+          <th>Weekly</th>
+          <th>Depuis maintenant</th>
+          <th>Accès free</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in invite_rows %}
+        <tr>
+          <td>{{ row.member_name }}</td>
+          <td>{{ row.total }}</td>
+          <td>{{ row.weekly }}</td>
+          <td>{{ row.from_now }}</td>
+          <td>{{ row.free_access }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune invitation enregistrée.</div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -4,6 +4,32 @@
 {% block content %}
 <section class="panel-section">
   <div class="section-head">
+    <h2>Créer un giveaway</h2>
+    <p>Crée un giveaway directement depuis le panel avec salon, lot, durée et gagnants.</p>
+  </div>
+  <form method="post" class="form-grid form-grid-double">
+    <input type="hidden" name="action" value="create">
+    <label>
+      <span>ID salon</span>
+      <input type="text" name="channel_id" placeholder="ID du salon">
+    </label>
+    <label>
+      <span>Prix</span>
+      <input type="text" name="prize" placeholder="Ex: Kitsune Permanent">
+    </label>
+    <label>
+      <span>Durée</span>
+      <input type="text" name="duration" placeholder="Ex: 10m, 2h, 1d">
+    </label>
+    <label>
+      <span>Nombre de gagnants</span>
+      <input type="number" name="winners_count" min="1" max="20" value="1">
+    </label>
+    <button type="submit" class="button">Créer le giveaway</button>
+  </form>
+</section>
+<section class="panel-section">
+  <div class="section-head">
     <h2>Giveaways actifs</h2>
     <p>Termine ou reroll directement depuis le panel.</p>
   </div>
