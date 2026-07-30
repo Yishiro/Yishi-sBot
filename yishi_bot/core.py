@@ -865,12 +865,12 @@ class YishiBot(commands.Bot):
         rank = self.get_member_rank_position(member.guild.id, member.id)
         accent = tuple(self.get_level_theme(stats["grade"])["accent"])
 
-        width, height = 1650, 400
+        width, height = 1650, 430
         img = Image.new("RGB", (width, height), (14, 16, 23))
         draw = ImageDraw.Draw(img)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 62)
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 58)
             grade_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
             value_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
             body_font = ImageFont.truetype("DejaVuSans.ttf", 20)
@@ -972,23 +972,23 @@ class YishiBot(commands.Bot):
         draw.rounded_rectangle((14, 14, width - 15, height - 15), radius=28, outline=tuple(min(255, c + 28) for c in card["border"]), width=1)
 
         if card["decor"] == "forge":
-            draw.polygon([(0, 30), (48, 0), (170, 0), (108, 42), (0, 42)], fill=(58, 29, 24))
-            draw.polygon([(width, height - 30), (width - 48, height), (width - 170, height), (width - 108, height - 42), (width, height - 42)], fill=(58, 29, 24))
+            draw.polygon([(0, 24), (42, 0), (140, 0), (92, 34), (0, 34)], fill=(58, 29, 24))
+            draw.polygon([(width, height - 24), (width - 42, height), (width - 140, height), (width - 92, height - 34), (width, height - 34)], fill=(58, 29, 24))
         elif card["decor"] == "storm":
-            draw.polygon([(1290, 0), (width, 0), (width, 58)], fill=(32, 77, 149))
-            draw.polygon([(0, height), (170, height), (124, height - 42), (0, height - 42)], fill=(24, 52, 95))
+            draw.polygon([(1360, 0), (width, 0), (width, 42)], fill=(32, 77, 149))
+            draw.polygon([(0, height), (140, height), (100, height - 34), (0, height - 34)], fill=(24, 52, 95))
         elif card["decor"] == "arcane":
-            draw.ellipse((1320, 10, 1420, 110), fill=(111, 59, 212, 36))
-            draw.ellipse((1230, 210, 1360, 340), fill=(63, 29, 122, 48))
+            draw.ellipse((1360, 18, 1430, 88), fill=(111, 59, 212, 30))
+            draw.ellipse((1270, 244, 1360, 334), fill=(63, 29, 122, 38))
         elif card["decor"] == "elite":
-            draw.polygon([(0, 0), (150, 0), (108, 42), (0, 42)], fill=(187, 197, 213, 30))
-            draw.polygon([(width, 0), (width - 150, 0), (width - 108, 42), (width, 42)], fill=(187, 197, 213, 30))
+            draw.polygon([(0, 0), (118, 0), (86, 30), (0, 30)], fill=(187, 197, 213, 26))
+            draw.polygon([(width, 0), (width - 118, 0), (width - 86, 30), (width, 30)], fill=(187, 197, 213, 26))
         elif card["decor"] == "mythic":
-            draw.polygon([(0, 0), (170, 0), (220, 44), (0, 44)], fill=(64, 39, 78))
-            draw.polygon([(width, 0), (width - 170, 0), (width - 220, 44), (width, 44)], fill=(64, 39, 78))
+            draw.polygon([(0, 0), (140, 0), (182, 34), (0, 34)], fill=(64, 39, 78))
+            draw.polygon([(width, 0), (width - 140, 0), (width - 182, 34), (width, 34)], fill=(64, 39, 78))
 
         avatar_center_x = 205
-        avatar_center_y = 190
+        avatar_center_y = 205
         outer_radius = 132
         draw.ellipse((avatar_center_x - outer_radius, avatar_center_y - outer_radius, avatar_center_x + outer_radius, avatar_center_y + outer_radius), fill=card["orb1"])
         inner_overlay = Image.new("RGBA", (252, 252), (0, 0, 0, 0))
@@ -1025,25 +1025,25 @@ class YishiBot(commands.Bot):
             draw.text((avatar_center_x, avatar_center_y), initials, font=title_font, anchor="mm", fill=white)
 
         right_x = 460
-        draw.text((right_x, 78), card["tag"], font=tiny_font, fill=card["tag_color"])
-        draw.text((right_x, 116), member.display_name, font=title_font, fill=white)
-        draw.text((right_x, 176), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=accent)
+        draw.text((right_x, 76), card["tag"], font=tiny_font, fill=card["tag_color"])
+        draw.text((right_x, 108), member.display_name, font=title_font, fill=white)
+        draw.text((right_x, 164), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=accent)
 
-        bar_x1, bar_y1, bar_x2, bar_y2 = right_x, 224, right_x + 920, 260
+        bar_x1, bar_y1, bar_x2, bar_y2 = right_x, 210, right_x + 920, 242
         draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=17, fill=bar_bg)
         fill_x = int(bar_x1 + (bar_x2 - bar_x1) * max(0.04, ratio))
         draw.rounded_rectangle((bar_x1, bar_y1, max(bar_x1 + 18, fill_x), bar_y2), radius=17, fill=accent)
-        draw.text((right_x, 282), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=body_font, fill=soft)
+        draw.text((right_x, 264), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=body_font, fill=soft)
 
-        stats_y = 318
+        stats_y = 302
         draw.text((right_x, stats_y), "XP TOTAL", font=small_font, fill=muted)
-        draw.text((right_x, stats_y + 38), xp_text, font=value_font, fill=white)
+        draw.text((right_x, stats_y + 34), xp_text, font=value_font, fill=white)
         draw.text((right_x + 270, stats_y), "MESSAGES", font=small_font, fill=muted)
-        draw.text((right_x + 270, stats_y + 38), str(stats["message_count"]), font=value_font, fill=white)
+        draw.text((right_x + 270, stats_y + 34), str(stats["message_count"]), font=value_font, fill=white)
         draw.text((right_x + 540, stats_y), "TEMPS VOCAL", font=small_font, fill=muted)
-        draw.text((right_x + 540, stats_y + 38), self.format_voice_duration(stats["voice_seconds"]), font=value_font, fill=white)
-        draw.text((right_x + 920, 278), "CLASSEMENT", font=small_font, fill=muted, anchor="ra")
-        draw.text((right_x + 920, 332), f"#{rank}", font=rank_font, fill=white, anchor="ra")
+        draw.text((right_x + 540, stats_y + 34), self.format_voice_duration(stats["voice_seconds"]), font=value_font, fill=white)
+        draw.text((right_x + 920, 260), "CLASSEMENT", font=small_font, fill=muted, anchor="ra")
+        draw.text((right_x + 920, 320), f"#{rank}", font=rank_font, fill=white, anchor="ra")
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
