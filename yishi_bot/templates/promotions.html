@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Promotions • Yishi Panel{% endblock %}
+{% block header %}Promotions{% endblock %}
+{% block content %}
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Ajouter une promotion</h2>
+    <p>Crée une nouvelle offre pour la rotation hebdomadaire sans passer par Discord.</p>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="action" value="add">
+    <label>
+      <span>Titre</span>
+      <input type="text" name="title" placeholder="Ex: Promo spin week-end" required>
+    </label>
+    <label>
+      <span>Priorité</span>
+      <input type="number" name="priority" min="1" max="5" value="1" required>
+    </label>
+    <label>
+      <span>Texte</span>
+      <textarea name="content" rows="8" placeholder="Contenu de la promo" required></textarea>
+    </label>
+    <button type="submit" class="button">Ajouter la promotion</button>
+  </form>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Rotation actuelle</h2>
+    <form method="post">
+      <input type="hidden" name="action" value="post_next">
+      <button type="submit" class="button secondary">Publier la prochaine promo</button>
+    </form>
+  </div>
+  {% if promotions %}
+  <div class="promo-list">
+    {% for promo in promotions %}
+    <article class="promo-card">
+      <div class="promo-meta">
+        <span>#{{ promo.id }}</span>
+        <span>Priorité {{ promo.priority }}</span>
+        <span>{{ "Active" if promo.active else "Off" }}</span>
+      </div>
+      <h3>{{ promo.title }}</h3>
+      <p>{{ promo.content }}</p>
+      <div class="promo-actions">
+        <form method="post">
+          <input type="hidden" name="action" value="toggle">
+          <input type="hidden" name="promo_id" value="{{ promo.id }}">
+          <button type="submit" class="button secondary">{{ "Désactiver" if promo.active else "Réactiver" }}</button>
+        </form>
+        <form method="post">
+          <input type="hidden" name="action" value="delete">
+          <input type="hidden" name="promo_id" value="{{ promo.id }}">
+          <button type="submit" class="button danger">Supprimer</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune promotion enregistrée.</div>
+  {% endif %}
+</section>
+{% endblock %}

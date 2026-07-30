@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Yishi Owner Panel{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">Y</div>
+        <div>
+          <strong>Yishi Panel</strong>
+          <p>Owner only</p>
+        </div>
+      </div>
+
+      {% if selected_guild %}
+      <form method="get" class="guild-picker">
+        <label for="guild_id">Serveur</label>
+        <select id="guild_id" name="guild_id" onchange="this.form.submit()">
+          {% for guild in guilds %}
+          <option value="{{ guild.id }}" {% if selected_guild and guild.id == selected_guild.id %}selected{% endif %}>{{ guild.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
+
+      <nav class="nav">
+        <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard', guild_id=selected_guild.id if selected_guild else None) }}">Dashboard</a>
+        <a class="{% if active_page == 'config' %}active{% endif %}" href="{{ url_for('config_page', guild_id=selected_guild.id if selected_guild else None) }}">Configuration</a>
+        <a class="{% if active_page == 'auto_messages' %}active{% endif %}" href="{{ url_for('auto_messages', guild_id=selected_guild.id if selected_guild else None) }}">Messages auto</a>
+        <a class="{% if active_page == 'promotions' %}active{% endif %}" href="{{ url_for('promotions', guild_id=selected_guild.id if selected_guild else None) }}">Promotions</a>
+      </nav>
+
+      {% if active_page != 'login' %}
+      <form method="post" action="{{ url_for('logout') }}" class="logout">
+        <button type="submit" class="button secondary">Déconnexion</button>
+      </form>
+      {% endif %}
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1>{% block header %}Owner Panel{% endblock %}</h1>
+          <p>
+            {% if bot_online %}Bot en ligne{% else %}Bot hors ligne{% endif %}
+            {% if selected_guild %}• {{ selected_guild.name }}{% endif %}
+          </p>
+        </div>
+        <div class="status-card">
+          <span>Paris</span>
+          <strong>{{ now_paris.strftime('%d/%m/%Y %H:%M') }}</strong>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

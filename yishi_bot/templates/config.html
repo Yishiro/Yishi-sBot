@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Configuration • Yishi Panel{% endblock %}
+{% block header %}Configuration{% endblock %}
+{% block content %}
+<section class="panel-section">
+  <div class="section-head">
+    <h2>IDs principaux</h2>
+    <p>Modifie ici les salons et rôles clés sans repasser par les commandes Discord.</p>
+  </div>
+  <form method="post" class="form-grid form-grid-double">
+    {% for key, label in config_fields %}
+    <label>
+      <span>{{ label }}</span>
+      <input type="text" name="{{ key }}" value="{{ config.get(key, '') or '' }}" placeholder="ID ou vide">
+    </label>
+    {% endfor %}
+    <button type="submit" class="button">Enregistrer la configuration</button>
+  </form>
+</section>
+{% endblock %}

@@ -78,6 +78,8 @@ def default_config() -> dict[str, Any]:
         "staff_prices_channel_id": None,
         "free_netflix_channel_id": None,
         "free_crunchyroll_channel_id": None,
+        "daily_level_channel_id": DEFAULT_DAILY_LEVEL_CHANNEL_ID,
+        "daily_sales_rules_channel_id": DEFAULT_DAILY_SALES_RULES_CHANNEL_ID,
         "shop_message_id": None,
         "free_netflix_message_id": None,
         "free_crunchyroll_message_id": None,
@@ -85,6 +87,9 @@ def default_config() -> dict[str, Any]:
         "rules_role_id": None,
         "rules_text_message_id": None,
         "rules_message_id": None,
+        "auto_level_message_enabled": True,
+        "auto_sales_rules_enabled": True,
+        "daily_level_message": "",
     }
 
 def can_moderate(
@@ -142,6 +147,7 @@ def default_level_store() -> dict[str, Any]:
         "members": {},
         "voice_sessions": {},
         "temp_channels": {},
+        "daily_posts": {},
     }
 
 def merge_missing_defaults(target: dict[str, Any], defaults: dict[str, Any]) -> bool:

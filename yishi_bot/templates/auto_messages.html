@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Messages auto • Yishi Panel{% endblock %}
+{% block header %}Messages automatiques{% endblock %}
+{% block content %}
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Automatisation quotidienne</h2>
+    <p>Réglage des deux posts de midi heure de Paris.</p>
+  </div>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="action" value="save">
+    <label class="checkbox">
+      <input type="checkbox" name="auto_level_message_enabled" {% if auto_config.auto_level_message_enabled %}checked{% endif %}>
+      <span>Activer le message progression quotidien</span>
+    </label>
+    <label>
+      <span>Salon progression</span>
+      <input type="text" name="daily_level_channel_id" value="{{ auto_config.daily_level_channel_id }}">
+    </label>
+    <label>
+      <span>Texte progression</span>
+      <textarea name="daily_level_message" rows="12">{{ auto_config.daily_level_message }}</textarea>
+    </label>
+
+    <label class="checkbox">
+      <input type="checkbox" name="auto_sales_rules_enabled" {% if auto_config.auto_sales_rules_enabled %}checked{% endif %}>
+      <span>Activer le règlement ventes quotidien</span>
+    </label>
+    <label>
+      <span>Salon règlement ventes</span>
+      <input type="text" name="daily_sales_rules_channel_id" value="{{ auto_config.daily_sales_rules_channel_id }}">
+    </label>
+    <button type="submit" class="button">Sauvegarder</button>
+  </form>
+</section>
+
+<section class="cards-grid action-grid">
+  <form method="post" class="action-card">
+    <input type="hidden" name="action" value="send_level_now">
+    <h3>Envoyer maintenant</h3>
+    <p>Republie tout de suite le message progression.</p>
+    <button type="submit" class="button secondary">Poster progression</button>
+  </form>
+  <form method="post" class="action-card">
+    <input type="hidden" name="action" value="send_sales_now">
+    <h3>Envoyer maintenant</h3>
+    <p>Republie tout de suite le règlement ventes membres.</p>
+    <button type="submit" class="button secondary">Poster règlement ventes</button>
+  </form>
+  <form method="post" class="action-card">
+    <input type="hidden" name="action" value="sync_commands">
+    <h3>Maintenance</h3>
+    <p>Force une resynchronisation des slash commandes.</p>
+    <button type="submit" class="button secondary">Sync commandes</button>
+  </form>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Aperçu règlement ventes</h2>
+    <p>Le message ventes reste structuré en embed pour garder un rendu propre sur Discord.</p>
+  </div>
+  {% if sales_preview %}
+  <div class="embed-preview">
+    <h3>{{ sales_preview.title }}</h3>
+    <p>{{ sales_preview.description }}</p>
+    {% for field in sales_preview.fields %}
+    <div class="embed-field">
+      <strong>{{ field.name }}</strong>
+      <p>{{ field.value }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -2649,6 +2649,79 @@ class YishiBot(commands.Bot):
             self.save_invites()
             await self.sync_all_free_access_roles(guild)
 
+    def get_daily_level_channel_id(self, guild_id: int) -> int:
+        config = self.get_guild_config(guild_id)
+        return int(config.get("daily_level_channel_id") or DEFAULT_DAILY_LEVEL_CHANNEL_ID)
+
+    def get_daily_sales_rules_channel_id(self, guild_id: int) -> int:
+        config = self.get_guild_config(guild_id)
+        return int(config.get("daily_sales_rules_channel_id") or DEFAULT_DAILY_SALES_RULES_CHANNEL_ID)
+
+    def get_daily_level_message_text(self, guild_id: int) -> str:
+        config = self.get_guild_config(guild_id)
+        custom_message = str(config.get("daily_level_message") or "").strip()
+        if custom_message:
+            return custom_message
+        return (
+            "# ✨ Progression du serveur\n\n"
+            "Chaque jour, ton activité te permet de monter en niveau et d'obtenir un meilleur grade sur **Yishi's Shop**.\n\n"
+            "## 📈 Comment gagner de l'XP\n"
+            "- En envoyant des messages utiles et réguliers\n"
+            "- En restant actif en vocal\n"
+            "- En participant à la vie du serveur\n\n"
+            "## 👑 Grades disponibles\n"
+            "- ✨ Novice\n"
+            "- 🌟 Actif\n"
+            "- 💠 Confirmé\n"
+            "- 🔥 Elite\n"
+            "- 👑 Légende\n\n"
+            "## 📌 Commandes utiles\n"
+            "- `/level`\n"
+            "- `/level @membre`\n\n"
+            "-# Plus tu es actif, plus ton niveau augmente.\n"
+            "-# Reviens chaque jour pour continuer ta progression."
+        )
+
+    def build_daily_level_message(self, guild_id: int) -> str:
+        return self.get_daily_level_message_text(guild_id)
+
+    async def process_daily_scheduled_posts(self) -> None:
+        now_paris = self.utcnow().astimezone(self.paris_tz)
+        if now_paris.hour != 12 or now_paris.minute != 0:
+            return
+
+        day_key = now_paris.strftime("%Y-%m-%d")
+        daily_posts = self.level_data.setdefault("daily_posts", {})
+        changed = False
+
+        for guild in self.guilds:
+            config = self.get_guild_config(guild.id)
+
+            if config.get("auto_level_message_enabled", True):
+                level_channel = guild.get_channel(self.get_daily_level_channel_id(guild.id))
+                level_key = f"{guild.id}:level"
+                if (
+                    isinstance(level_channel, discord.TextChannel)
+                    and daily_posts.get(level_key) != day_key
+                ):
+                    await level_channel.send(self.build_daily_level_message(guild.id))
+                    daily_posts[level_key] = day_key
+                    changed = True
+
+            if config.get("auto_sales_rules_enabled", True):
+                sales_channel = guild.get_channel(self.get_daily_sales_rules_channel_id(guild.id))
+                sales_key = f"{guild.id}:sales_rules"
+                if (
+                    isinstance(sales_channel, discord.TextChannel)
+                    and daily_posts.get(sales_key) != day_key
+                ):
+                    await sales_channel.send(embed=self.build_sales_rules_embed())
+                    daily_posts[sales_key] = day_key
+                    changed = True
+
+        if changed:
+            self.save_levels()
+
     async def run_background_jobs(self) -> None:
         await self.wait_until_ready()
         while not self.is_closed():
@@ -2657,6 +2730,7 @@ class YishiBot(commands.Bot):
                 await self.process_sale_recalls()
                 await self.process_weekly_promotions()
                 await self.process_weekly_free_access_reset()
+                await self.process_daily_scheduled_posts()
                 await self.process_voice_xp()
             except Exception:
                 traceback.print_exc()

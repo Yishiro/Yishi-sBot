@@ -16,5 +16,5 @@ def main() -> None:
         raise RuntimeError("La variable d'environnement DISCORD_TOKEN est introuvable.")
 
     bot = create_bot()
-    keep_alive()
+    keep_alive(bot)
     bot.run(token)
