@@ -93,6 +93,18 @@ def parse_int_or_none(value: str) -> int | None:
         return None
 
 
+def iso_to_local(value: str | None) -> str:
+    if not value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.strftime("%d/%m/%Y %H:%M")
+        return dt.astimezone(_paris_tz).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return value
+
+
 def available_guilds() -> list[Any]:
     bot = get_bot()
     if bot is None:
@@ -165,7 +177,7 @@ def run_bot_coroutine(coro: Any, *, timeout: int = 20) -> tuple[bool, str]:
         future.result(timeout=timeout)
     except Exception as exc:
         return False, str(exc)
-    return True, "Action executée."
+    return True, "Action executee."
 
 
 @app.route("/health")
@@ -238,7 +250,7 @@ def config_page():
             value = parse_int_or_none(request.form.get(key, ""))
             config[key] = value
         bot.save_config()
-        flash("Configuration enregistrée.", "success")
+        flash("Configuration enregistree.", "success")
         return redirect(url_for("config_page", guild_id=guild.id))
 
     return render_template(
@@ -268,7 +280,7 @@ def auto_messages():
             config["daily_sales_rules_channel_id"] = parse_int_or_none(request.form.get("daily_sales_rules_channel_id", "")) or config.get("daily_sales_rules_channel_id")
             config["daily_level_message"] = request.form.get("daily_level_message", "").strip()
             bot.save_config()
-            flash("Messages automatiques mis à jour.", "success")
+            flash("Messages automatiques mis a jour.", "success")
         elif action == "send_level_now":
             async def _send_level_now() -> None:
                 channel = guild.get_channel(bot.get_daily_level_channel_id(guild.id))
@@ -277,7 +289,7 @@ def auto_messages():
                 await channel.send(bot.build_daily_level_message(guild.id))
 
             ok, message = run_bot_coroutine(_send_level_now())
-            flash("Message progression envoyé." if ok else f"Echec: {message}", "success" if ok else "error")
+            flash("Message progression envoye." if ok else f"Echec: {message}", "success" if ok else "error")
         elif action == "send_sales_now":
             async def _send_sales_now() -> None:
                 channel = guild.get_channel(bot.get_daily_sales_rules_channel_id(guild.id))
@@ -286,10 +298,10 @@ def auto_messages():
                 await channel.send(embed=bot.build_sales_rules_embed())
 
             ok, message = run_bot_coroutine(_send_sales_now())
-            flash("Règlement ventes envoyé." if ok else f"Echec: {message}", "success" if ok else "error")
+            flash("Reglement ventes envoye." if ok else f"Echec: {message}", "success" if ok else "error")
         elif action == "sync_commands":
             ok, message = run_bot_coroutine(bot.sync_commands_once(force=True), timeout=60)
-            flash("Commandes resynchronisées." if ok else f"Echec: {message}", "success" if ok else "error")
+            flash("Commandes resynchronisees." if ok else f"Echec: {message}", "success" if ok else "error")
 
         return redirect(url_for("auto_messages", guild_id=guild.id))
 
@@ -348,31 +360,31 @@ def promotions():
                 )
                 store["next_id"] = promo_id + 1
                 bot.save_promos()
-                flash("Promotion ajoutée.", "success")
+                flash("Promotion ajoutee.", "success")
         elif action == "toggle":
             promo_id = request.form.get("promo_id", "").strip()
             for promo in store["promotions"]:
                 if str(promo["id"]) == promo_id:
                     promo["active"] = not promo.get("active", True)
                     bot.save_promos()
-                    flash("Statut de la promotion mis à jour.", "success")
+                    flash("Statut de la promotion mis a jour.", "success")
                     break
         elif action == "delete":
             promo_id = request.form.get("promo_id", "").strip()
             store["promotions"] = [promo for promo in store["promotions"] if str(promo["id"]) != promo_id]
             bot.save_promos()
-            flash("Promotion supprimée.", "success")
+            flash("Promotion supprimee.", "success")
         elif action == "post_next":
             async def _post_next() -> None:
                 promo = bot.select_next_promo(guild.id)
                 if promo is None:
-                    raise RuntimeError("Aucune promotion active à publier.")
+                    raise RuntimeError("Aucune promotion active a publier.")
                 message = await bot.post_promo(guild, promo, automatic=False)
                 if message is None:
                     raise RuntimeError("Salon promotions introuvable.")
 
             ok, message = run_bot_coroutine(_post_next(), timeout=60)
-            flash("Promotion publiée." if ok else f"Echec: {message}", "success" if ok else "error")
+            flash("Promotion publiee." if ok else f"Echec: {message}", "success" if ok else "error")
 
         return redirect(url_for("promotions", guild_id=guild.id))
 
@@ -387,6 +399,132 @@ def promotions():
         "promotions.html",
         promotions=promotions_list,
         **panel_context("promotions"),
+    )
+
+
+@app.route("/tickets", methods=["GET", "POST"])
+@login_required
+def tickets_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template("tickets_panel.html", open_tickets=[], archived_tickets=[], **panel_context("tickets"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        channel_id = parse_int_or_none(request.form.get("channel_id", ""))
+        if channel_id is None:
+            flash("ID de ticket invalide.", "error")
+        elif action == "archive":
+            ok, message = run_bot_coroutine(bot.owner_archive_ticket(guild.id, channel_id), timeout=60)
+            flash("Ticket archive." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "reopen":
+            ok, message = run_bot_coroutine(bot.owner_reopen_ticket(guild.id, channel_id), timeout=60)
+            flash("Ticket reouvert." if ok else f"Echec: {message}", "success" if ok else "error")
+        return redirect(url_for("tickets_page", guild_id=guild.id))
+
+    store = bot.get_ticket_store(guild.id).get("channels", {})
+    open_tickets: list[dict[str, Any]] = []
+    archived_tickets: list[dict[str, Any]] = []
+    for channel_id, ticket in store.items():
+        channel = guild.get_channel(int(channel_id))
+        owner = guild.get_member(int(ticket.get("owner_id", 0))) if ticket.get("owner_id") else None
+        helper = guild.get_member(int(ticket.get("assigned_helper_id", 0))) if ticket.get("assigned_helper_id") else None
+        row = {
+            "channel_id": int(channel_id),
+            "channel_name": channel.name if channel else f"#{channel_id}",
+            "owner_name": owner.display_name if owner else str(ticket.get("owner_id", "-")),
+            "helper_name": helper.display_name if helper else "-",
+            "ticket_type": ticket.get("type", "-"),
+            "status": ticket.get("status", "-"),
+            "destination": ticket.get("destination", "-"),
+            "opened_at": iso_to_local(ticket.get("created_at")),
+            "claimed_at": iso_to_local(ticket.get("claimed_at")),
+        }
+        if ticket.get("status") == "archived":
+            archived_tickets.append(row)
+        else:
+            open_tickets.append(row)
+
+    open_tickets.sort(key=lambda item: item["channel_name"].lower())
+    archived_tickets.sort(key=lambda item: item["channel_name"].lower())
+    return render_template(
+        "tickets_panel.html",
+        open_tickets=open_tickets,
+        archived_tickets=archived_tickets,
+        **panel_context("tickets"),
+    )
+
+
+@app.route("/sales", methods=["GET", "POST"])
+@login_required
+def sales_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template("sales_panel.html", pending_sales=[], active_sales=[], reserved_sales=[], **panel_context("sales"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        target_id = parse_int_or_none(request.form.get("target_id", ""))
+        if target_id is None:
+            flash("ID de vente invalide.", "error")
+        elif action == "approve":
+            ok, message = run_bot_coroutine(bot.owner_approve_sale(guild.id, target_id), timeout=60)
+            flash("Vente acceptee." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "reject":
+            ok, message = run_bot_coroutine(bot.owner_reject_sale(guild.id, target_id), timeout=60)
+            flash("Vente refusee." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "close":
+            ok, message = run_bot_coroutine(bot.owner_close_sale_channel(guild.id, target_id), timeout=60)
+            flash("Vente cloturee." if ok else f"Echec: {message}", "success" if ok else "error")
+        return redirect(url_for("sales_page", guild_id=guild.id))
+
+    store = bot.get_sale_store(guild.id)
+    pending_sales: list[dict[str, Any]] = []
+    active_sales: list[dict[str, Any]] = []
+    reserved_sales: list[dict[str, Any]] = []
+
+    for review_message_id, sale in store.get("reviews", {}).items():
+        seller = guild.get_member(int(sale.get("seller_id", 0))) if sale.get("seller_id") else None
+        pending_sales.append(
+            {
+                "target_id": int(review_message_id),
+                "product": sale.get("product", "-"),
+                "category": sale.get("category", "-"),
+                "price": sale.get("price", "-"),
+                "seller_name": seller.display_name if seller else str(sale.get("seller_id", "-")),
+                "created_at": iso_to_local(sale.get("created_at")),
+            }
+        )
+
+    for message_id, sale in store.get("messages", {}).items():
+        seller = guild.get_member(int(sale.get("seller_id", 0))) if sale.get("seller_id") else None
+        buyer = guild.get_member(int(sale.get("buyer_id", 0))) if sale.get("buyer_id") else None
+        row = {
+            "message_id": int(message_id),
+            "product": sale.get("product", "-"),
+            "category": sale.get("category", "-"),
+            "price": sale.get("price", "-"),
+            "status": sale.get("status", "-"),
+            "seller_name": seller.display_name if seller else str(sale.get("seller_id", "-")),
+            "buyer_name": buyer.display_name if buyer else "-",
+            "created_at": iso_to_local(sale.get("created_at")),
+            "sale_channel_id": int(sale["sale_channel_id"]) if sale.get("sale_channel_id") else None,
+        }
+        if sale.get("status") == "reserved" and row["sale_channel_id"]:
+            reserved_sales.append(row)
+        else:
+            active_sales.append(row)
+
+    return render_template(
+        "sales_panel.html",
+        pending_sales=pending_sales,
+        active_sales=active_sales,
+        reserved_sales=reserved_sales,
+        **panel_context("sales"),
     )
 
 

@@ -2185,6 +2185,133 @@ class YishiBot(commands.Bot):
         await asyncio.sleep(2)
         await channel.delete(reason=f"Vente clôturée par {member}")
 
+    async def owner_approve_sale(self, guild_id: int, review_message_id: int) -> None:
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            raise RuntimeError("Serveur introuvable.")
+
+        store = self.get_sale_store(guild.id)
+        sale = store["reviews"].get(str(review_message_id))
+        if sale is None:
+            raise RuntimeError("Cette demande de vente n'existe plus.")
+        if sale.get("status") != "pending":
+            raise RuntimeError("Cette vente a deja ete traitee.")
+
+        sales_channel, _, review_channel = await self.ensure_sales_config(guild)
+        review_message = None
+        try:
+            review_message = await review_channel.fetch_message(review_message_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            review_message = None
+
+        sale["status"] = "available"
+        public_message = await sales_channel.send(embed=self.build_sale_embed(sale), view=SaleListingView(self))
+        sale["public_message_id"] = public_message.id
+        store["messages"][str(public_message.id)] = sale
+        store["reviews"].pop(str(review_message_id), None)
+        self.save_sales()
+
+        if review_message is not None:
+            approved_embed = self.build_sale_review_embed(sale)
+            approved_embed.color = discord.Color.green()
+            approved_embed.set_field_at(5, name="Statut", value="Acceptee via owner panel", inline=True)
+            await review_message.edit(embed=approved_embed, view=None)
+
+        seller = guild.get_member(int(sale["seller_id"]))
+        if seller is not None:
+            with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                await seller.send(f"Ta vente **{sale['product']}** a ete acceptee et publiee dans {sales_channel.mention}.")
+
+        await self.log_event(
+            guild,
+            "Vente validee",
+            f"La vente **{sale['product']}** a ete validee via le owner panel.",
+            discord.Color.green(),
+            fields=[("Salon public", sales_channel.mention, True)],
+        )
+
+    async def owner_reject_sale(self, guild_id: int, review_message_id: int) -> None:
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            raise RuntimeError("Serveur introuvable.")
+
+        store = self.get_sale_store(guild.id)
+        sale = store["reviews"].get(str(review_message_id))
+        if sale is None:
+            raise RuntimeError("Cette demande de vente n'existe plus.")
+        if sale.get("status") != "pending":
+            raise RuntimeError("Cette vente a deja ete traitee.")
+
+        sale["status"] = "rejected"
+        sale["rejected_at"] = discord.utils.utcnow().isoformat()
+        store["reviews"].pop(str(review_message_id), None)
+        self.save_sales()
+
+        review_channel = guild.get_channel(self.get_guild_config(guild.id).get("sales_review_channel_id"))
+        if isinstance(review_channel, discord.TextChannel):
+            with contextlib.suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                review_message = await review_channel.fetch_message(review_message_id)
+                rejected_embed = self.build_sale_review_embed(sale)
+                rejected_embed.color = discord.Color.red()
+                rejected_embed.set_field_at(5, name="Statut", value="Refusee via owner panel", inline=True)
+                await review_message.edit(embed=rejected_embed, view=None)
+
+        seller = guild.get_member(int(sale["seller_id"]))
+        if seller is not None:
+            with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                await seller.send(f"Ta vente **{sale['product']}** a ete refusee par le staff.")
+
+        await self.log_event(
+            guild,
+            "Vente refusee",
+            f"La vente **{sale['product']}** a ete refusee via le owner panel.",
+            discord.Color.red(),
+        )
+
+    async def owner_close_sale_channel(self, guild_id: int, sale_channel_id: int) -> None:
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            raise RuntimeError("Serveur introuvable.")
+
+        channel = guild.get_channel(sale_channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            raise RuntimeError("Salon de vente introuvable.")
+
+        store = self.get_sale_store(guild.id)
+        channel_state = store["channels"].get(str(channel.id))
+        if channel_state is None:
+            raise RuntimeError("Ce salon n'est pas une vente geree par le bot.")
+        message_id = channel_state.get("message_id") if isinstance(channel_state, dict) else channel_state
+
+        sale = store["messages"].get(str(message_id))
+        if sale is None:
+            store["channels"].pop(str(channel.id), None)
+            self.save_sales()
+            raise RuntimeError("Cette vente n'existe plus dans les donnees.")
+
+        sales_channel = self.get_sales_channel(guild)
+        if sales_channel is not None:
+            with contextlib.suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                listing_message = await sales_channel.fetch_message(int(message_id))
+                await listing_message.delete()
+
+        sale["status"] = "closed"
+        sale["closed_at"] = discord.utils.utcnow().isoformat()
+        store["channels"].pop(str(channel.id), None)
+        self.save_sales()
+
+        await self.log_event(
+            guild,
+            "Vente cloturee",
+            f"La vente **{sale['product']}** a ete cloturee via le owner panel.",
+            discord.Color.red(),
+            fields=[
+                ("Acheteur", f"<@{sale['buyer_id']}>" if sale.get("buyer_id") else "Aucun", True),
+                ("Vendeur", f"<@{sale['seller_id']}>", True),
+            ],
+        )
+        await channel.delete(reason="Vente cloturee via owner panel")
+
     def format_remaining_duration(self, end_at: int) -> str:
         remaining = end_at - int(discord.utils.utcnow().timestamp())
         if remaining <= 0:
@@ -3329,6 +3456,78 @@ class YishiBot(commands.Bot):
         )
         await interaction.followup.send("Le ticket a été archivé.", ephemeral=True)
 
+    async def owner_archive_ticket(self, guild_id: int, channel_id: int) -> None:
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            raise RuntimeError("Serveur introuvable.")
+        channel = guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            raise RuntimeError("Salon ticket introuvable.")
+
+        store = self.get_ticket_store(guild.id)
+        ticket = store["channels"].get(str(channel.id))
+        if ticket is None:
+            raise RuntimeError("Ce salon n'est pas un ticket gere par le bot.")
+        if ticket["status"] != "open":
+            raise RuntimeError("Ce ticket est deja archive.")
+
+        config = self.get_guild_config(guild.id)
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        archive_category = guild.get_channel(config["archive_category_id"]) if config["archive_category_id"] else None
+        owner = guild.get_member(ticket["owner_id"])
+
+        if archive_role is None or not isinstance(archive_category, discord.CategoryChannel):
+            raise RuntimeError("La configuration des archives est invalide.")
+
+        await channel.edit(category=archive_category, reason="Archivage via owner panel")
+        await self.send_ticket_transcript(channel)
+
+        if owner is not None:
+            await channel.set_permissions(owner, overwrite=discord.PermissionOverwrite(view_channel=False))
+        if staff_role is not None:
+            await channel.set_permissions(staff_role, overwrite=discord.PermissionOverwrite(view_channel=False))
+        await channel.set_permissions(
+            archive_role,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            ),
+        )
+        if guild.owner is not None:
+            await channel.set_permissions(
+                guild.owner,
+                overwrite=discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_messages=True,
+                ),
+            )
+        await channel.set_permissions(guild.default_role, overwrite=discord.PermissionOverwrite(view_channel=False))
+
+        ticket["status"] = "archived"
+        ticket["closed_by"] = guild.owner_id
+        if ticket.get("assigned_helper_id"):
+            self.add_staff_points(guild.id, int(ticket["assigned_helper_id"]), 2)
+        self.save_tickets()
+
+        embed = discord.Embed(
+            title="Ticket archive",
+            description="Ce ticket a ete archive via le owner panel.",
+            color=discord.Color.orange(),
+        )
+        await channel.send(embed=embed, view=TicketArchiveView(self))
+        await self.log_event(
+            guild,
+            "Ticket ferme",
+            f"Le ticket **{channel.name}** a ete archive via le owner panel.",
+            discord.Color.orange(),
+            fields=[("Salon", channel.name, True)],
+        )
+
     async def reopen_ticket(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         channel = interaction.channel
@@ -3455,6 +3654,94 @@ class YishiBot(commands.Bot):
             thumbnail_url=user.display_avatar.url,
         )
         await interaction.followup.send("Le ticket a été réouvert.", ephemeral=True)
+
+    async def owner_reopen_ticket(self, guild_id: int, channel_id: int) -> None:
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            raise RuntimeError("Serveur introuvable.")
+        channel = guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            raise RuntimeError("Salon ticket introuvable.")
+
+        store = self.get_ticket_store(guild.id)
+        ticket = store["channels"].get(str(channel.id))
+        if ticket is None:
+            raise RuntimeError("Ce salon n'est pas un ticket gere par le bot.")
+        if ticket["status"] != "archived":
+            raise RuntimeError("Ce ticket n'est pas archive.")
+
+        config = self.get_guild_config(guild.id)
+        staff_role = guild.get_role(config["staff_role_id"]) if config["staff_role_id"] else None
+        archive_role = guild.get_role(config["archive_role_id"]) if config["archive_role_id"] else None
+        ticket_category = guild.get_channel(config["ticket_category_id"]) if config["ticket_category_id"] else None
+        owner = guild.get_member(ticket["owner_id"])
+
+        if staff_role is None or archive_role is None or not isinstance(ticket_category, discord.CategoryChannel):
+            raise RuntimeError("La configuration des tickets est invalide.")
+        if owner is None:
+            raise RuntimeError("Le createur du ticket n'est plus sur le serveur.")
+        if len(self.get_open_tickets_for_user(guild.id, owner.id)) >= 3:
+            raise RuntimeError("L'utilisateur a deja 3 tickets ouverts.")
+
+        await channel.edit(category=ticket_category, reason="Reouverture via owner panel")
+        await channel.set_permissions(
+            owner,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True,
+            ),
+        )
+        await channel.set_permissions(
+            staff_role,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            ),
+        )
+        await channel.set_permissions(
+            archive_role,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            ),
+        )
+        if guild.owner is not None:
+            await channel.set_permissions(
+                guild.owner,
+                overwrite=discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_messages=True,
+                ),
+            )
+        await channel.set_permissions(guild.default_role, overwrite=discord.PermissionOverwrite(view_channel=False))
+
+        ticket["status"] = "open"
+        ticket["reopened_by"] = guild.owner_id
+        ticket["last_activity_at"] = self.iso_now()
+        ticket["recall_sent_at"] = None
+        self.save_tickets()
+
+        embed = discord.Embed(
+            title="Ticket reouvert",
+            description="Ce ticket a ete reouvert via le owner panel.",
+            color=discord.Color.green(),
+        )
+        await channel.send(embed=embed, view=TicketCloseView(self))
+        await self.log_event(
+            guild,
+            "Ticket reouvert",
+            f"Le ticket **{channel.name}** a ete reouvert via le owner panel.",
+            discord.Color.green(),
+        )
 
     async def join_giveaway(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or interaction.message is None:

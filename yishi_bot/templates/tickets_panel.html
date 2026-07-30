@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Tickets • Yishi Panel{% endblock %}
+{% block header %}Tickets{% endblock %}
+{% block content %}
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Tickets ouverts</h2>
+    <p>Archive un ticket directement depuis le panel owner.</p>
+  </div>
+  {% if open_tickets %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Salon</th>
+          <th>Owner</th>
+          <th>Helper</th>
+          <th>Type</th>
+          <th>Destination</th>
+          <th>Ouvert</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ticket in open_tickets %}
+        <tr>
+          <td>{{ ticket.channel_name }}</td>
+          <td>{{ ticket.owner_name }}</td>
+          <td>{{ ticket.helper_name }}</td>
+          <td>{{ ticket.ticket_type }}</td>
+          <td>{{ ticket.destination }}</td>
+          <td>{{ ticket.opened_at }}</td>
+          <td>
+            <form method="post">
+              <input type="hidden" name="action" value="archive">
+              <input type="hidden" name="channel_id" value="{{ ticket.channel_id }}">
+              <button type="submit" class="button secondary">Archiver</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucun ticket ouvert.</div>
+  {% endif %}
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <h2>Tickets archives</h2>
+    <p>Reouvre un ticket archive si besoin.</p>
+  </div>
+  {% if archived_tickets %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Salon</th>
+          <th>Owner</th>
+          <th>Helper</th>
+          <th>Type</th>
+          <th>Claim</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ticket in archived_tickets %}
+        <tr>
+          <td>{{ ticket.channel_name }}</td>
+          <td>{{ ticket.owner_name }}</td>
+          <td>{{ ticket.helper_name }}</td>
+          <td>{{ ticket.ticket_type }}</td>
+          <td>{{ ticket.claimed_at }}</td>
+          <td>
+            <form method="post">
+              <input type="hidden" name="action" value="reopen">
+              <input type="hidden" name="channel_id" value="{{ ticket.channel_id }}">
+              <button type="submit" class="button secondary">Reouvrir</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucun ticket archive.</div>
+  {% endif %}
+</section>
+{% endblock %}
