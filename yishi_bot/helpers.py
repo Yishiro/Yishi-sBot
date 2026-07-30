@@ -5,7 +5,12 @@ from typing import Any
 
 import discord
 
-from yishi_bot.constants import INVITE_ROLE_REQUIREMENTS, INVITE_ROLE_WEIGHTS
+from yishi_bot.constants import (
+    DEFAULT_DAILY_LEVEL_CHANNEL_ID,
+    DEFAULT_DAILY_SALES_RULES_CHANNEL_ID,
+    INVITE_ROLE_REQUIREMENTS,
+    INVITE_ROLE_WEIGHTS,
+)
 
 def parse_duration(value: str) -> int | None:
     match = re.fullmatch(r"(\d+)([mhd])", value.lower().strip())
