@@ -859,25 +859,24 @@ class YishiBot(commands.Bot):
         return embed
 
     def render_level_card(self, member: discord.Member) -> str:
-        from PIL import Image, ImageChops, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw, ImageFont
 
         stats = self.get_member_level_stats(member.guild.id, member.id)
         rank = self.get_member_rank_position(member.guild.id, member.id)
-        theme = self.get_level_theme(stats["grade"])
-        accent = theme["accent"]
-        bg = theme["bg"]
+        accent = tuple(self.get_level_theme(stats["grade"])["accent"])
 
-        width, height = 1100, 430
-        img = Image.new("RGB", (width, height), tuple(bg))
+        width, height = 1500, 320
+        img = Image.new("RGB", (width, height), (14, 16, 23))
         draw = ImageDraw.Draw(img)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 56)
-            grade_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 25)
-            value_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 25)
-            body_font = ImageFont.truetype("DejaVuSans.ttf", 18)
-            small_font = ImageFont.truetype("DejaVuSans.ttf", 15)
-            tiny_font = ImageFont.truetype("DejaVuSans.ttf", 14)
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 62)
+            grade_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+            value_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
+            body_font = ImageFont.truetype("DejaVuSans.ttf", 20)
+            small_font = ImageFont.truetype("DejaVuSans.ttf", 17)
+            tiny_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 14)
+            rank_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
         except OSError:
             title_font = ImageFont.load_default()
             grade_font = ImageFont.load_default()
@@ -885,66 +884,136 @@ class YishiBot(commands.Bot):
             body_font = ImageFont.load_default()
             small_font = ImageFont.load_default()
             tiny_font = ImageFont.load_default()
-
-        panel_fill = (13, 19, 37)
-        inner_fill = (19, 28, 50)
-        white = (245, 247, 252)
-        soft = (214, 221, 232)
-        muted = (149, 160, 184)
-        bar_bg = (35, 49, 77)
-        border = tuple(accent)
-        glow = tuple(min(255, value + 45) for value in accent)
+            rank_font = ImageFont.load_default()
 
         ratio = max(0.0, min(1.0, stats["current_xp"] / max(1, stats["needed_xp"])))
         initials = "".join(part[0] for part in member.display_name.split()[:2]).upper() or member.display_name[:1].upper()
         xp_text = f"{stats['xp']:,}".replace(",", " ")
         badge_dir = Path(__file__).with_name("level_badges")
-        badge_file_by_grade = {
-            "Novice": "novice.png",
-            "Actif": "actif.png",
-            "Confirme": "confirme.png",
-            "Elite": "elite.png",
-            "Legende": "legende.png",
+        card_themes = {
+            "Novice": {
+                "border": (201, 92, 51),
+                "bg1": (30, 20, 21),
+                "bg2": (40, 24, 24),
+                "orb1": (132, 47, 32),
+                "orb2": (255, 114, 63),
+                "tag": "FORGED RANK",
+                "tag_color": (107, 59, 48),
+                "decor": "forge",
+                "badge": "novice.png",
+            },
+            "Actif": {
+                "border": (47, 145, 255),
+                "bg1": (17, 26, 49),
+                "bg2": (18, 36, 70),
+                "orb1": (29, 91, 196),
+                "orb2": (97, 183, 255),
+                "tag": "STORM RANK",
+                "tag_color": (78, 135, 216),
+                "decor": "storm",
+                "badge": "actif.png",
+            },
+            "Confirme": {
+                "border": (150, 82, 255),
+                "bg1": (24, 18, 38),
+                "bg2": (36, 22, 57),
+                "orb1": (86, 37, 165),
+                "orb2": (179, 107, 255),
+                "tag": "ARCANE RANK",
+                "tag_color": (139, 89, 222),
+                "decor": "arcane",
+                "badge": "confirme.png",
+            },
+            "Elite": {
+                "border": (220, 226, 239),
+                "bg1": (23, 27, 37),
+                "bg2": (32, 40, 58),
+                "orb1": (207, 214, 226),
+                "orb2": (255, 255, 255),
+                "tag": "CELESTIAL RANK",
+                "tag_color": (199, 207, 221),
+                "decor": "elite",
+                "badge": "elite.png",
+            },
+            "Legende": {
+                "border": (255, 197, 61),
+                "bg1": (29, 21, 48),
+                "bg2": (40, 26, 64),
+                "orb1": (255, 200, 67),
+                "orb2": (255, 232, 159),
+                "tag": "MYTHIC RANK",
+                "tag_color": (211, 167, 68),
+                "decor": "mythic",
+                "badge": "legende.png",
+            },
         }
+        card = card_themes.get(stats["grade"], card_themes["Novice"])
+        white = (245, 247, 252)
+        soft = (215, 223, 236)
+        muted = (154, 166, 190)
+        bar_bg = (42, 56, 88)
+        glow = tuple(min(255, value + 25) for value in accent)
 
-        draw.rounded_rectangle((14, 14, width - 14, height - 14), radius=36, fill=panel_fill, outline=border, width=3)
+        draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=36, fill=card["bg1"], outline=card["border"], width=3)
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        for y in range(height):
+            blend = y / max(1, height - 1)
+            row = (
+                int(card["bg1"][0] * (1 - blend) + card["bg2"][0] * blend),
+                int(card["bg1"][1] * (1 - blend) + card["bg2"][1] * blend),
+                int(card["bg1"][2] * (1 - blend) + card["bg2"][2] * blend),
+                135,
+            )
+            overlay_draw.line((0, y, width, y), fill=row)
+        mask = Image.new("L", (width, height), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, width, height), radius=36, fill=255)
+        img.paste(overlay, (0, 0), mask)
+        draw.rounded_rectangle((14, 14, width - 15, height - 15), radius=28, outline=tuple(min(255, c + 28) for c in card["border"]), width=1)
 
-        avatar_center_x = 185
-        avatar_center_y = 214
-        outer_radius = 146
-        draw.ellipse(
-            (avatar_center_x - outer_radius, avatar_center_y - outer_radius, avatar_center_x + outer_radius, avatar_center_y + outer_radius),
-            fill=tuple(accent),
-        )
+        if card["decor"] == "forge":
+            draw.polygon([(0, 38), (64, 0), (210, 0), (136, 54), (0, 54)], fill=(58, 29, 24))
+            draw.polygon([(width, height - 38), (width - 64, height), (width - 210, height), (width - 136, height - 54), (width, height - 54)], fill=(58, 29, 24))
+        elif card["decor"] == "storm":
+            draw.polygon([(1220, 0), (width, 0), (width, 82)], fill=(32, 77, 149))
+            draw.polygon([(0, height), (220, height), (160, height - 60), (0, height - 60)], fill=(24, 52, 95))
+        elif card["decor"] == "arcane":
+            draw.ellipse((1290, 6, 1430, 146), fill=(111, 59, 212, 46))
+            draw.ellipse((1200, 160, 1380, 340), fill=(63, 29, 122, 66))
+        elif card["decor"] == "elite":
+            draw.polygon([(0, 0), (210, 0), (154, 56), (0, 56)], fill=(187, 197, 213, 38))
+            draw.polygon([(width, 0), (width - 210, 0), (width - 154, 56), (width, 56)], fill=(187, 197, 213, 38))
+        elif card["decor"] == "mythic":
+            draw.polygon([(0, 0), (240, 0), (300, 58), (0, 58)], fill=(64, 39, 78))
+            draw.polygon([(width, 0), (width - 240, 0), (width - 300, 58), (width, 58)], fill=(64, 39, 78))
+
+        avatar_center_x = 180
+        avatar_center_y = 160
+        outer_radius = 116
+        draw.ellipse((avatar_center_x - outer_radius, avatar_center_y - outer_radius, avatar_center_x + outer_radius, avatar_center_y + outer_radius), fill=card["orb1"])
+        inner_overlay = Image.new("RGBA", (220, 220), (0, 0, 0, 0))
+        inner_draw = ImageDraw.Draw(inner_overlay)
+        for radius in range(94, 0, -1):
+            alpha = int(45 * (radius / 94))
+            inner_draw.ellipse((110 - radius, 110 - radius, 110 + radius, 110 + radius), fill=(*card["orb2"], alpha))
+        img.paste(inner_overlay, (avatar_center_x - 110, avatar_center_y - 110), inner_overlay)
+        draw.ellipse((avatar_center_x - 88, avatar_center_y - 88, avatar_center_x + 88, avatar_center_y + 88), outline=glow, width=6)
 
         badge_pasted = False
-        badge_name = badge_file_by_grade.get(stats["grade"])
-        badge_path = badge_dir / badge_name if badge_name else None
-        if badge_path and badge_path.exists():
+        badge_path = badge_dir / card["badge"]
+        if badge_path.exists():
             try:
                 badge = Image.open(badge_path).convert("RGBA")
                 bbox = badge.getbbox()
                 if bbox is not None:
                     badge = badge.crop(bbox)
-
                 resampling = getattr(Image, "Resampling", None)
                 resample_filter = (
                     resampling.LANCZOS
                     if resampling is not None
                     else getattr(Image, "LANCZOS", Image.BICUBIC)
                 )
-
-                badge = badge.resize((228, 228), resample_filter)
-
-                # Clip the badge to a perfect circle so nothing spills outside the avatar zone.
-                circle_mask = Image.new("L", badge.size, 0)
-                circle_draw = ImageDraw.Draw(circle_mask)
-                circle_draw.ellipse((0, 0, badge.width - 1, badge.height - 1), fill=255)
-
-                badge_alpha = badge.getchannel("A")
-                clipped_alpha = ImageChops.multiply(badge_alpha, circle_mask)
-                badge.putalpha(clipped_alpha)
-
+                badge.thumbnail((220, 220), resample_filter)
                 badge_x = avatar_center_x - badge.width // 2
                 badge_y = avatar_center_y - badge.height // 2
                 img.paste(badge, (badge_x, badge_y), badge)
@@ -956,27 +1025,25 @@ class YishiBot(commands.Bot):
             draw.text((avatar_center_x, avatar_center_y), initials, font=title_font, anchor="mm", fill=white)
 
         right_x = 390
-        draw.text((right_x, 86), member.display_name, font=title_font, fill=white)
-        draw.text((right_x, 142), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=tuple(accent))
+        draw.text((right_x, 74), card["tag"], font=tiny_font, fill=card["tag_color"])
+        draw.text((right_x, 108), member.display_name, font=title_font, fill=white)
+        draw.text((right_x, 150), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=accent)
 
-        bar_x1, bar_y1, bar_x2, bar_y2 = right_x, 190, 978, 224
-        draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=18, fill=bar_bg)
-        if ratio > 0:
-            fill_x = int(bar_x1 + (bar_x2 - bar_x1) * ratio)
-            draw.rounded_rectangle((bar_x1, bar_y1, max(bar_x1 + 18, fill_x), bar_y2), radius=18, fill=tuple(accent))
-        draw.text((right_x, 244), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=body_font, fill=soft)
+        bar_x1, bar_y1, bar_x2, bar_y2 = right_x, 190, right_x + 850, 224
+        draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=17, fill=bar_bg)
+        fill_x = int(bar_x1 + (bar_x2 - bar_x1) * max(0.04, ratio))
+        draw.rounded_rectangle((bar_x1, bar_y1, max(bar_x1 + 18, fill_x), bar_y2), radius=17, fill=accent)
+        draw.text((right_x, 258), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=body_font, fill=soft)
 
-        stat_boxes = [
-            ((right_x, 286, right_x + 170, 354), "XP TOTAL", xp_text),
-            ((right_x + 230, 286, right_x + 400, 354), "MESSAGES", str(stats["message_count"])),
-            ((right_x + 460, 286, right_x + 690, 354), "TEMPS VOCAL", self.format_voice_duration(stats["voice_seconds"])),
-        ]
-        for box, label, value in stat_boxes:
-            draw.text((box[0], box[1]), label, font=small_font, fill=muted)
-            draw.text((box[0], box[1] + 28), value, font=value_font, fill=white)
-
-        draw.text((right_x, 372), "CLASSEMENT", font=body_font, fill=muted)
-        draw.text((right_x, 396), f"#{rank}", font=value_font, fill=white)
+        stats_y = 290
+        draw.text((right_x, stats_y), "XP TOTAL", font=small_font, fill=muted)
+        draw.text((right_x, stats_y + 38), xp_text, font=value_font, fill=white)
+        draw.text((right_x + 270, stats_y), "MESSAGES", font=small_font, fill=muted)
+        draw.text((right_x + 270, stats_y + 38), str(stats["message_count"]), font=value_font, fill=white)
+        draw.text((right_x + 540, stats_y), "TEMPS VOCAL", font=small_font, fill=muted)
+        draw.text((right_x + 540, stats_y + 38), self.format_voice_duration(stats["voice_seconds"]), font=value_font, fill=white)
+        draw.text((right_x + 850, 244), "CLASSEMENT", font=small_font, fill=muted, anchor="ra")
+        draw.text((right_x + 850, 282), f"#{rank}", font=rank_font, fill=white, anchor="ra")
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
