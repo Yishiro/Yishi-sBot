@@ -5,7 +5,13 @@
 <section class="panel-section">
   <div class="section-head">
     <h2>Tickets ouverts</h2>
-    <p>Archive un ticket directement depuis le panel owner.</p>
+    <div>
+      <p>Archive un ticket directement depuis le panel owner.</p>
+      <form method="post">
+        <input type="hidden" name="action" value="reset">
+        <button type="submit" class="button danger">Reset total des tickets</button>
+      </form>
+    </div>
   </div>
   {% if open_tickets %}
   <div class="table-wrap">

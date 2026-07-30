@@ -414,6 +414,10 @@ def tickets_page():
     if request.method == "POST":
         action = request.form.get("action", "")
         channel_id = parse_int_or_none(request.form.get("channel_id", ""))
+        if action == "reset":
+            ok, message = run_bot_coroutine(bot.owner_reset_tickets(guild.id), timeout=120)
+            flash("Tous les tickets ont ete supprimes et le compteur repart de zero." if ok else f"Echec: {message}", "success" if ok else "error")
+            return redirect(url_for("tickets_page", guild_id=guild.id))
         if channel_id is None:
             flash("ID de ticket invalide.", "error")
         elif action == "archive":

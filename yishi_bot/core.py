@@ -1143,6 +1143,46 @@ class YishiBot(commands.Bot):
                 break
         return expected
 
+    async def owner_reset_tickets(self, guild_id: int) -> None:
+        guild = self.get_guild(guild_id)
+        if guild is None:
+            raise RuntimeError("Serveur introuvable.")
+
+        config = self.get_guild_config(guild.id)
+        category_ids = {
+            config.get("ticket_category_id"),
+            config.get("ticket_helper_category_id"),
+            config.get("ticket_purchase_category_id"),
+            config.get("ticket_staff_category_id"),
+        }
+
+        channels_to_delete: dict[int, discord.TextChannel] = {}
+        for category_id in category_ids:
+            if not category_id:
+                continue
+            category = guild.get_channel(int(category_id))
+            if not isinstance(category, discord.CategoryChannel):
+                continue
+            for channel in category.text_channels:
+                channels_to_delete[channel.id] = channel
+
+        for channel in channels_to_delete.values():
+            with contextlib.suppress(discord.Forbidden, discord.NotFound, discord.HTTPException):
+                await channel.delete(reason="Reset tickets via owner panel")
+
+        store = self.get_ticket_store(guild.id)
+        store["channels"] = {}
+        store["panel_message_id"] = None
+        self.save_tickets()
+
+        await self.log_event(
+            guild,
+            "Reset tickets",
+            "Tous les tickets existants ont ete supprimes via le owner panel.",
+            discord.Color.red(),
+            fields=[("Salons supprimes", str(len(channels_to_delete)), True)],
+        )
+
     def utcnow(self) -> datetime:
         return discord.utils.utcnow()
 
