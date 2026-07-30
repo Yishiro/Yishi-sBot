@@ -29,6 +29,36 @@ class ProgressionCog(commands.Cog):
         image_path = self.bot.render_level_card(target)
         await interaction.followup.send(file=discord.File(image_path, filename="level-card.png"))
 
+    @app_commands.command(name="level_set", description="Définit directement le niveau d'un membre")
+    @app_commands.describe(membre="Membre à modifier", niveau="Niveau exact à appliquer")
+    @app_commands.default_permissions(manage_guild=True)
+    async def level_set(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        niveau: app_commands.Range[int, 0, 500],
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        result = await self.bot.set_member_level(membre, int(niveau))
+        await self.bot.log_event(
+            interaction.guild,
+            "Niveau défini",
+            f"{interaction.user.mention} a défini le niveau de {membre.mention}.",
+            discord.Color.blurple(),
+            thumbnail_url=membre.display_avatar.url,
+            fields=[
+                ("Avant", f"Niveau {result['before_level']} • {result['before_grade']}", True),
+                ("Après", f"Niveau {result['after_level']} • {result['after_grade']}", True),
+                ("XP total", str(result["xp"]), True),
+            ],
+        )
+        await interaction.response.send_message(
+            f"{membre.mention} est maintenant **niveau {result['after_level']}**.",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="voc_lock", description="Verrouille ton vocal temporaire")
     async def voc_lock(self, interaction: discord.Interaction) -> None:
         if not isinstance(interaction.user, discord.Member):

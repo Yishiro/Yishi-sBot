@@ -580,6 +580,22 @@ class YishiBot(commands.Bot):
                 thumbnail_url=member.display_avatar.url,
             )
 
+    async def set_member_level(self, member: discord.Member, level: int) -> dict[str, Any]:
+        target_level = max(0, int(level))
+        entry = self.get_member_level_entry(member.guild.id, member.id)
+        before_stats = self.get_member_level_stats(member.guild.id, member.id)
+        entry["xp"] = self.xp_for_level(target_level)
+        self.save_levels()
+        await self.sync_member_xp_role(member)
+        after_stats = self.get_member_level_stats(member.guild.id, member.id)
+        return {
+            "before_level": before_stats["level"],
+            "after_level": after_stats["level"],
+            "before_grade": before_stats["grade"],
+            "after_grade": after_stats["grade"],
+            "xp": after_stats["xp"],
+        }
+
     async def award_message_xp(self, message: discord.Message) -> None:
         if message.guild is None or not isinstance(message.author, discord.Member):
             return
@@ -850,42 +866,75 @@ class YishiBot(commands.Bot):
         accent = theme["accent"]
         bg = theme["bg"]
 
-        img = Image.new("RGB", (1100, 420), tuple(bg))
+        width, height = 1200, 420
+        img = Image.new("RGB", (width, height), tuple(bg))
         draw = ImageDraw.Draw(img)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 52)
-            grade_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
-            text_font = ImageFont.truetype("DejaVuSans.ttf", 28)
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 56)
+            grade_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
+            text_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
             small_font = ImageFont.truetype("DejaVuSans.ttf", 22)
+            tiny_font = ImageFont.truetype("DejaVuSans.ttf", 18)
         except OSError:
             title_font = ImageFont.load_default()
             grade_font = ImageFont.load_default()
             text_font = ImageFont.load_default()
             small_font = ImageFont.load_default()
+            tiny_font = ImageFont.load_default()
 
-        draw.rounded_rectangle((10, 10, 1090, 410), radius=28, outline=tuple(accent), width=4, fill=tuple(bg))
-        draw.ellipse((36, 60, 336, 360), fill=tuple(accent))
-        draw.ellipse((70, 94, 302, 326), fill=(24, 28, 40))
-        draw.text((153, 170), stats["grade"][0], font=title_font, anchor="mm", fill=tuple(accent))
+        panel_fill = (14, 20, 32)
+        white = (245, 247, 252)
+        muted = (154, 166, 186)
+        bar_bg = (33, 45, 66)
+        border = tuple(accent)
+        glow = tuple(min(255, value + 40) for value in accent)
 
-        draw.text((390, 55), member.display_name, font=title_font, fill=(245, 247, 250))
-        draw.text((390, 120), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=tuple(accent))
-
-        bar_x1, bar_y1, bar_x2, bar_y2 = 390, 185, 1000, 225
-        draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=20, fill=(36, 47, 66))
         ratio = max(0.0, min(1.0, stats["current_xp"] / max(1, stats["needed_xp"])))
-        fill_x = int(bar_x1 + (bar_x2 - bar_x1) * ratio)
-        draw.rounded_rectangle((bar_x1, bar_y1, fill_x, bar_y2), radius=20, fill=tuple(accent))
-        draw.text((390, 238), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=small_font, fill=(220, 226, 235))
+        percent = int(ratio * 100)
+        initials = "".join(part[0] for part in member.display_name.split()[:2]).upper() or member.display_name[:1].upper()
 
-        draw.text((390, 292), "XP TOTAL", font=small_font, fill=(170, 180, 195))
-        draw.text((390, 326), f"{stats['xp']:,}", font=text_font, fill=(245, 247, 250))
-        draw.text((610, 292), "MESSAGES", font=small_font, fill=(170, 180, 195))
-        draw.text((610, 326), str(stats["message_count"]), font=text_font, fill=(245, 247, 250))
-        draw.text((825, 292), "TEMPS VOCAL", font=small_font, fill=(170, 180, 195))
-        draw.text((825, 326), self.format_voice_duration(stats["voice_seconds"]), font=text_font, fill=(245, 247, 250))
-        draw.text((390, 372), f"CLASSEMENT  #{rank}", font=grade_font, fill=(245, 247, 250))
+        for y in range(height):
+            blend = y / max(1, height - 1)
+            row = (
+                int(bg[0] * (1 - blend) + panel_fill[0] * blend),
+                int(bg[1] * (1 - blend) + panel_fill[1] * blend),
+                int(bg[2] * (1 - blend) + panel_fill[2] * blend),
+            )
+            draw.line((0, y, width, y), fill=row)
+
+        draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=34, fill=panel_fill, outline=border, width=3)
+        draw.rounded_rectangle((30, 30, width - 30, height - 30), radius=30, outline=(255, 255, 255), width=1)
+
+        draw.rounded_rectangle((48, 54, 315, 366), radius=36, fill=(20, 28, 44), outline=(255, 255, 255), width=1)
+        draw.ellipse((78, 93, 285, 300), fill=tuple(accent))
+        draw.ellipse((98, 113, 265, 280), fill=(26, 32, 46))
+        draw.ellipse((114, 129, 249, 264), outline=glow, width=8)
+        draw.text((182, 196), initials, font=title_font, anchor="mm", fill=white)
+        draw.text((182, 322), stats["grade"].upper(), font=grade_font, anchor="mm", fill=tuple(accent))
+        draw.text((182, 352), f"RANG #{rank}", font=tiny_font, anchor="mm", fill=muted)
+
+        draw.text((385, 68), member.display_name, font=title_font, fill=white)
+        draw.rounded_rectangle((385, 136, 730, 176), radius=20, fill=(25, 34, 52), outline=(255, 255, 255), width=1)
+        draw.text((410, 144), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=tuple(accent))
+
+        bar_x1, bar_y1, bar_x2, bar_y2 = 385, 208, 1095, 244
+        draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=18, fill=bar_bg)
+        if ratio > 0:
+            fill_x = int(bar_x1 + (bar_x2 - bar_x1) * ratio)
+            draw.rounded_rectangle((bar_x1, bar_y1, max(bar_x1 + 22, fill_x), bar_y2), radius=18, fill=tuple(accent))
+        draw.text((385, 256), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=small_font, fill=white)
+        draw.text((1095, 256), f"{percent}%", font=small_font, anchor="ra", fill=tuple(accent))
+
+        stat_boxes = [
+            ((385, 300, 585, 378), "XP TOTAL", f"{stats['xp']:,}".replace(",", ",")),
+            ((610, 300, 810, 378), "MESSAGES", str(stats["message_count"])),
+            ((835, 300, 1095, 378), "TEMPS VOCAL", self.format_voice_duration(stats["voice_seconds"])),
+        ]
+        for box, label, value in stat_boxes:
+            draw.rounded_rectangle(box, radius=22, fill=(19, 27, 42), outline=(255, 255, 255), width=1)
+            draw.text((box[0] + 18, box[1] + 12), label, font=tiny_font, fill=muted)
+            draw.text((box[0] + 18, box[1] + 40), value, font=text_font, fill=white)
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
