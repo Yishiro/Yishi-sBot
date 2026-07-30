@@ -872,31 +872,32 @@ class YishiBot(commands.Bot):
         draw = ImageDraw.Draw(img)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
-            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 34)
-            grade_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 26)
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 62)
+            subtitle_font = ImageFont.truetype("DejaVuSans.ttf", 18)
+            pill_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
             value_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 34)
             body_font = ImageFont.truetype("DejaVuSans.ttf", 22)
-            small_font = ImageFont.truetype("DejaVuSans.ttf", 19)
-            tiny_font = ImageFont.truetype("DejaVuSans.ttf", 17)
+            small_font = ImageFont.truetype("DejaVuSans.ttf", 18)
+            tiny_font = ImageFont.truetype("DejaVuSans.ttf", 16)
         except OSError:
             title_font = ImageFont.load_default()
-            header_font = ImageFont.load_default()
-            grade_font = ImageFont.load_default()
+            subtitle_font = ImageFont.load_default()
+            pill_font = ImageFont.load_default()
             value_font = ImageFont.load_default()
             body_font = ImageFont.load_default()
             small_font = ImageFont.load_default()
             tiny_font = ImageFont.load_default()
 
-        panel_fill = (12, 18, 30)
-        panel_alt = (17, 25, 40)
-        deep = (8, 12, 20)
+        panel_fill = (11, 16, 28)
+        panel_alt = (15, 23, 38)
+        panel_soft = (20, 29, 46)
+        deep = (7, 10, 18)
         white = (245, 247, 252)
         soft = (214, 221, 232)
         muted = (142, 156, 180)
-        bar_bg = (31, 42, 61)
+        bar_bg = (28, 40, 60)
         border = tuple(accent)
-        glow = tuple(min(255, value + 55) for value in accent)
+        glow = tuple(min(255, value + 40) for value in accent)
 
         ratio = max(0.0, min(1.0, stats["current_xp"] / max(1, stats["needed_xp"])))
         percent = int(ratio * 100)
@@ -920,17 +921,30 @@ class YishiBot(commands.Bot):
             )
             draw.line((0, y, width, y), fill=row)
 
-        draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=38, fill=panel_fill, outline=border, width=3)
-        draw.rounded_rectangle((34, 34, width - 34, height - 34), radius=34, outline=(255, 255, 255), width=1)
+        draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=34, fill=panel_fill, outline=border, width=2)
+        draw.rounded_rectangle((32, 32, width - 32, height - 32), radius=30, outline=(255, 255, 255), width=1)
 
-        draw.polygon([(980, 18), (1262, 18), (1262, 170)], fill=(*accent,))
-        draw.polygon([(1030, 18), (1262, 18), (1262, 120)], fill=tuple(min(255, c + 20) for c in accent))
+        left_x1, left_y1, left_x2, left_y2 = 52, 48, 350, 410
+        draw.rounded_rectangle((left_x1, left_y1, left_x2, left_y2), radius=30, fill=panel_alt, outline=(255, 255, 255), width=1)
 
-        left_x1, left_y1, left_x2, left_y2 = 52, 54, 360, 404
-        draw.rounded_rectangle((left_x1, left_y1, left_x2, left_y2), radius=40, fill=panel_alt, outline=(255, 255, 255), width=1)
-        draw.rounded_rectangle((82, 83, 330, 331), radius=124, fill=tuple(accent))
-        draw.rounded_rectangle((94, 95, 318, 319), radius=112, fill=(24, 31, 48))
-        draw.rounded_rectangle((106, 107, 306, 307), radius=100, outline=glow, width=5)
+        avatar_center_x = 201
+        avatar_center_y = 170
+        outer_radius = 118
+        inner_radius = 103
+        badge_radius = 94
+        draw.ellipse(
+            (avatar_center_x - outer_radius, avatar_center_y - outer_radius, avatar_center_x + outer_radius, avatar_center_y + outer_radius),
+            fill=tuple(accent),
+        )
+        draw.ellipse(
+            (avatar_center_x - inner_radius, avatar_center_y - inner_radius, avatar_center_x + inner_radius, avatar_center_y + inner_radius),
+            fill=panel_soft,
+        )
+        draw.ellipse(
+            (avatar_center_x - badge_radius - 6, avatar_center_y - badge_radius - 6, avatar_center_x + badge_radius + 6, avatar_center_y + badge_radius + 6),
+            outline=glow,
+            width=4,
+        )
 
         badge_pasted = False
         if badge_sheet_path.exists():
@@ -949,11 +963,15 @@ class YishiBot(commands.Bot):
                 # Make the generated black background transparent so only the emblem remains.
                 cleaned_pixels: list[tuple[int, int, int, int]] = []
                 for red, green, blue, alpha in badge.getdata():
-                    if red <= 22 and green <= 22 and blue <= 22:
+                    if red <= 28 and green <= 28 and blue <= 28:
                         cleaned_pixels.append((red, green, blue, 0))
                     else:
                         cleaned_pixels.append((red, green, blue, alpha))
                 badge.putdata(cleaned_pixels)
+
+                bbox = badge.getbbox()
+                if bbox is not None:
+                    badge = badge.crop(bbox)
 
                 resampling = getattr(Image, "Resampling", None)
                 resample_filter = (
@@ -961,50 +979,49 @@ class YishiBot(commands.Bot):
                     if resampling is not None
                     else getattr(Image, "LANCZOS", Image.BICUBIC)
                 )
-                badge = badge.resize((212, 212), resample_filter)
-                img.paste(badge, (100, 101), badge)
+                badge = badge.resize((188, 188), resample_filter)
+                badge_x = avatar_center_x - badge.width // 2
+                badge_y = avatar_center_y - badge.height // 2
+                img.paste(badge, (badge_x, badge_y), badge)
                 badge_pasted = True
             except Exception:
                 badge_pasted = False
 
         if not badge_pasted:
-            draw.text((206, 206), initials, font=title_font, anchor="mm", fill=white)
+            draw.text((avatar_center_x, avatar_center_y), initials, font=title_font, anchor="mm", fill=white)
 
-        draw.rounded_rectangle((106, 336, 306, 372), radius=18, fill=(26, 35, 53), outline=border, width=1)
-        draw.text((206, 346), stats["grade"].upper(), font=grade_font, anchor="ma", fill=tuple(accent))
-        draw.text((206, 382), f"CLASSEMENT #{rank}", font=tiny_font, anchor="ma", fill=muted)
+        draw.rounded_rectangle((98, 304, 304, 340), radius=18, fill=(24, 34, 53), outline=border, width=1)
+        draw.text((201, 314), stats["grade"].upper(), font=pill_font, anchor="ma", fill=tuple(accent))
+        draw.text((201, 358), f"CLASSEMENT #{rank}", font=small_font, anchor="ma", fill=muted)
 
-        draw.text((404, 66), member.display_name, font=title_font, fill=white)
-        draw.text((406, 126), "SERVER PROGRESSION", font=tiny_font, fill=muted)
+        right_x = 392
+        draw.text((right_x, 74), member.display_name, font=title_font, fill=white)
+        draw.text((right_x, 126), "Progression du serveur", font=subtitle_font, fill=muted)
 
-        pill_x1, pill_y1, pill_x2, pill_y2 = 404, 146, 730, 188
-        draw.rounded_rectangle((pill_x1, pill_y1, pill_x2, pill_y2), radius=21, fill=(25, 34, 52), outline=(255, 255, 255), width=1)
-        draw.text((426, 155), f"{stats['grade'].upper()}  •  LEVEL {stats['level']}", font=header_font, fill=tuple(accent))
+        pill_x1, pill_y1, pill_x2, pill_y2 = right_x, 146, right_x + 330, 188
+        draw.rounded_rectangle((pill_x1, pill_y1, pill_x2, pill_y2), radius=20, fill=(24, 34, 53), outline=border, width=1)
+        draw.text((pill_x1 + 18, 155), f"{stats['grade'].upper()}  •  LEVEL {stats['level']}", font=pill_font, fill=tuple(accent))
 
-        bar_x1, bar_y1, bar_x2, bar_y2 = 404, 225, 1130, 265
+        bar_x1, bar_y1, bar_x2, bar_y2 = right_x, 230, 1142, 268
         draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=18, fill=bar_bg)
         if ratio > 0:
             fill_x = int(bar_x1 + (bar_x2 - bar_x1) * ratio)
-            draw.rounded_rectangle((bar_x1, bar_y1, max(bar_x1 + 24, fill_x), bar_y2), radius=18, fill=tuple(accent))
+            draw.rounded_rectangle((bar_x1, bar_y1, max(bar_x1 + 18, fill_x), bar_y2), radius=18, fill=tuple(accent))
         for i in range(1, 10):
             x = int(bar_x1 + ((bar_x2 - bar_x1) / 10) * i)
-            draw.line((x, bar_y1 + 6, x, bar_y2 - 6), fill=(47, 61, 86), width=2)
-        draw.text((404, 280), f"{stats['current_xp']} / {stats['needed_xp']} XP to next level", font=body_font, fill=soft)
-        draw.text((1130, 280), f"{percent}%", font=body_font, anchor="ra", fill=tuple(accent))
+            draw.line((x, bar_y1 + 7, x, bar_y2 - 7), fill=(44, 58, 84), width=1)
+        draw.text((right_x, 286), f"{stats['current_xp']} / {stats['needed_xp']} XP to next level", font=body_font, fill=soft)
+        draw.text((1142, 286), f"{percent}%", font=body_font, anchor="ra", fill=tuple(accent))
 
         stat_boxes = [
-            ((404, 320, 626, 402), "TOTAL XP", xp_text),
-            ((654, 320, 876, 402), "MESSAGES", str(stats["message_count"])),
-            ((904, 320, 1130, 402), "VOICE TIME", self.format_voice_duration(stats["voice_seconds"])),
+            ((right_x, 322, 632, 404), "TOTAL XP", xp_text),
+            ((648, 322, 888, 404), "MESSAGES", str(stats["message_count"])),
+            ((904, 322, 1142, 404), "VOICE TIME", self.format_voice_duration(stats["voice_seconds"])),
         ]
         for box, label, value in stat_boxes:
-            draw.rounded_rectangle(box, radius=24, fill=(18, 27, 42), outline=(255, 255, 255), width=1)
+            draw.rounded_rectangle(box, radius=20, fill=(17, 25, 40), outline=(255, 255, 255), width=1)
             draw.text((box[0] + 18, box[1] + 13), label, font=tiny_font, fill=muted)
             draw.text((box[0] + 18, box[1] + 38), value, font=value_font, fill=white)
-
-        footer_y = 426
-        draw.text((54, footer_y), "Yishi's Shop • Level Profile", font=tiny_font, fill=muted)
-        draw.text((width - 54, footer_y), f"Grade unlock active: {stats['grade']}", font=tiny_font, anchor="ra", fill=muted)
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
