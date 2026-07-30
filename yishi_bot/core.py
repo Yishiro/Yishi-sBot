@@ -859,7 +859,7 @@ class YishiBot(commands.Bot):
         return embed
 
     def render_level_card(self, member: discord.Member) -> str:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageChops, ImageDraw, ImageFont
 
         stats = self.get_member_level_stats(member.guild.id, member.id)
         rank = self.get_member_rank_position(member.guild.id, member.id)
@@ -931,10 +931,15 @@ class YishiBot(commands.Bot):
                 offset_y = max(0, (section.height - square_side) // 2)
                 badge = section.crop((offset_x, offset_y, offset_x + square_side, offset_y + square_side))
 
-                # Make the generated black background transparent so only the emblem remains.
+                # Remove the plain light/dark background from the generated badge sheet.
                 cleaned_pixels: list[tuple[int, int, int, int]] = []
                 for red, green, blue, alpha in badge.getdata():
-                    if red <= 28 and green <= 28 and blue <= 28:
+                    max_channel = max(red, green, blue)
+                    min_channel = min(red, green, blue)
+                    is_dark_bg = red <= 30 and green <= 30 and blue <= 30
+                    is_light_bg = red >= 210 and green >= 210 and blue >= 210
+                    is_low_saturation = (max_channel - min_channel) <= 18
+                    if is_dark_bg or (is_light_bg and is_low_saturation):
                         cleaned_pixels.append((red, green, blue, 0))
                     else:
                         cleaned_pixels.append((red, green, blue, alpha))
@@ -950,7 +955,18 @@ class YishiBot(commands.Bot):
                     if resampling is not None
                     else getattr(Image, "LANCZOS", Image.BICUBIC)
                 )
-                badge = badge.resize((240, 240), resample_filter)
+
+                badge = badge.resize((228, 228), resample_filter)
+
+                # Clip the badge to a perfect circle so nothing spills outside the avatar zone.
+                circle_mask = Image.new("L", badge.size, 0)
+                circle_draw = ImageDraw.Draw(circle_mask)
+                circle_draw.ellipse((0, 0, badge.width - 1, badge.height - 1), fill=255)
+
+                badge_alpha = badge.getchannel("A")
+                clipped_alpha = ImageChops.multiply(badge_alpha, circle_mask)
+                badge.putalpha(clipped_alpha)
+
                 badge_x = avatar_center_x - badge.width // 2
                 badge_y = avatar_center_y - badge.height // 2
                 img.paste(badge, (badge_x, badge_y), badge)
@@ -981,8 +997,8 @@ class YishiBot(commands.Bot):
             draw.text((box[0], box[1]), label, font=small_font, fill=muted)
             draw.text((box[0], box[1] + 28), value, font=value_font, fill=white)
 
-        draw.text((right_x, 382), "CLASSEMENT", font=body_font, fill=muted)
-        draw.text((right_x, 412), f"#{rank}", font=title_font, fill=white)
+        draw.text((right_x, 372), "CLASSEMENT", font=body_font, fill=muted)
+        draw.text((right_x, 396), f"#{rank}", font=value_font, fill=white)
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
