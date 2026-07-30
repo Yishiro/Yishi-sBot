@@ -898,13 +898,13 @@ class YishiBot(commands.Bot):
         ratio = max(0.0, min(1.0, stats["current_xp"] / max(1, stats["needed_xp"])))
         initials = "".join(part[0] for part in member.display_name.split()[:2]).upper() or member.display_name[:1].upper()
         xp_text = f"{stats['xp']:,}".replace(",", " ")
-        badge_sheet_path = Path(__file__).with_name("level_badges_sheet.png")
-        badge_index_by_grade = {
-            "Novice": 0,
-            "Actif": 1,
-            "Confirme": 2,
-            "Elite": 3,
-            "Legende": 4,
+        badge_dir = Path(__file__).with_name("level_badges")
+        badge_file_by_grade = {
+            "Novice": "novice.png",
+            "Actif": "actif.png",
+            "Confirme": "confirme.png",
+            "Elite": "elite.png",
+            "Legende": "legende.png",
         }
 
         draw.rounded_rectangle((14, 14, width - 14, height - 14), radius=36, fill=panel_fill, outline=border, width=3)
@@ -918,33 +918,11 @@ class YishiBot(commands.Bot):
         )
 
         badge_pasted = False
-        if badge_sheet_path.exists():
+        badge_name = badge_file_by_grade.get(stats["grade"])
+        badge_path = badge_dir / badge_name if badge_name else None
+        if badge_path and badge_path.exists():
             try:
-                badge_sheet = Image.open(badge_sheet_path).convert("RGBA")
-                section_width = badge_sheet.width // 5
-                badge_index = badge_index_by_grade.get(stats["grade"], 0)
-                left = max(0, badge_index * section_width)
-                right = badge_sheet.width if badge_index == 4 else min(badge_sheet.width, (badge_index + 1) * section_width)
-                section = badge_sheet.crop((left, 0, right, badge_sheet.height))
-                square_side = min(section.width, section.height)
-                offset_x = max(0, (section.width - square_side) // 2)
-                offset_y = max(0, (section.height - square_side) // 2)
-                badge = section.crop((offset_x, offset_y, offset_x + square_side, offset_y + square_side))
-
-                # Remove the plain light/dark background from the generated badge sheet.
-                cleaned_pixels: list[tuple[int, int, int, int]] = []
-                for red, green, blue, alpha in badge.getdata():
-                    max_channel = max(red, green, blue)
-                    min_channel = min(red, green, blue)
-                    is_dark_bg = red <= 30 and green <= 30 and blue <= 30
-                    is_light_bg = red >= 210 and green >= 210 and blue >= 210
-                    is_low_saturation = (max_channel - min_channel) <= 18
-                    if is_dark_bg or (is_light_bg and is_low_saturation):
-                        cleaned_pixels.append((red, green, blue, 0))
-                    else:
-                        cleaned_pixels.append((red, green, blue, alpha))
-                badge.putdata(cleaned_pixels)
-
+                badge = Image.open(badge_path).convert("RGBA")
                 bbox = badge.getbbox()
                 if bbox is not None:
                     badge = badge.crop(bbox)
