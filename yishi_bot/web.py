@@ -532,6 +532,181 @@ def sales_page():
     )
 
 
+@app.route("/giveaways", methods=["GET", "POST"])
+@login_required
+def giveaways_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template("giveaways_panel.html", active_giveaways=[], ended_giveaways=[], blacklist_entries=[], **panel_context("giveaways"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        if action in {"end", "reroll"}:
+            message_id = parse_int_or_none(request.form.get("message_id", ""))
+            if message_id is None:
+                flash("ID giveaway invalide.", "error")
+            elif action == "end":
+                ok, message = run_bot_coroutine(bot.finish_giveaway(guild.id, message_id), timeout=90)
+                flash("Giveaway termine." if ok else f"Echec: {message}", "success" if ok else "error")
+            elif action == "reroll":
+                ok, message = run_bot_coroutine(bot.reroll_giveaway(guild.id, message_id), timeout=90)
+                flash("Giveaway reroll." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "blacklist_add":
+            member_id = parse_int_or_none(request.form.get("member_id", ""))
+            reason = request.form.get("reason", "").strip() or "Aucune raison"
+            if member_id is None:
+                flash("ID membre invalide.", "error")
+            else:
+                store = bot.get_giveaway_blacklist(guild.id)
+                store[str(member_id)] = {
+                    "reason": reason,
+                    "added_by": guild.owner_id,
+                    "added_at": datetime.now(tz=_paris_tz).isoformat(),
+                }
+                bot.save_giveaways()
+                flash("Membre blacklist giveaways ajoute.", "success")
+        elif action == "blacklist_remove":
+            member_id = parse_int_or_none(request.form.get("member_id", ""))
+            if member_id is None:
+                flash("ID membre invalide.", "error")
+            else:
+                bot.get_giveaway_blacklist(guild.id).pop(str(member_id), None)
+                bot.save_giveaways()
+                flash("Membre retire de la blacklist giveaways.", "success")
+        return redirect(url_for("giveaways_page", guild_id=guild.id))
+
+    entries = bot.get_giveaway_entries(guild.id)
+    active_giveaways: list[dict[str, Any]] = []
+    ended_giveaways: list[dict[str, Any]] = []
+    for giveaway in entries.values():
+        participants = giveaway.get("participants", [])
+        winners = giveaway.get("winners", [])
+        row = {
+            "message_id": int(giveaway.get("message_id", 0)),
+            "prize": giveaway.get("prize", "-"),
+            "status": giveaway.get("status", "-"),
+            "participants_count": len(participants),
+            "winners_count": int(giveaway.get("winners_count", 0)),
+            "forced_winner_id": giveaway.get("forced_winner_id"),
+            "end_at": giveaway.get("end_at", 0),
+            "winners": winners,
+        }
+        if giveaway.get("status") == "active":
+            active_giveaways.append(row)
+        else:
+            ended_giveaways.append(row)
+
+    active_giveaways.sort(key=lambda item: item["end_at"], reverse=True)
+    ended_giveaways.sort(key=lambda item: item["end_at"], reverse=True)
+
+    blacklist_entries = []
+    for member_id, data in bot.get_giveaway_blacklist(guild.id).items():
+        member = guild.get_member(int(member_id))
+        blacklist_entries.append(
+            {
+                "member_id": int(member_id),
+                "member_name": member.display_name if member else member_id,
+                "reason": data.get("reason", "Aucune raison"),
+                "added_at": iso_to_local(data.get("added_at")),
+            }
+        )
+
+    return render_template(
+        "giveaways_panel.html",
+        active_giveaways=active_giveaways,
+        ended_giveaways=ended_giveaways,
+        blacklist_entries=blacklist_entries,
+        **panel_context("giveaways"),
+    )
+
+
+@app.route("/gacha", methods=["GET", "POST"])
+@login_required
+def gacha_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template("gacha_panel.html", stocks=[], selected_member=None, selected_inventory=None, selected_notes=[], selected_history=[], **panel_context("gacha"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        member_id = parse_int_or_none(request.form.get("member_id", ""))
+        spin_type = request.form.get("spin_type", "basic").strip().lower()
+        quantity = parse_int_or_none(request.form.get("quantity", "")) or 0
+        reason = request.form.get("reason", "").strip() or None
+
+        if action in {"add_spin", "remove_spin", "note_add"} and member_id is None:
+            flash("ID membre invalide.", "error")
+            return redirect(url_for("gacha_page", guild_id=guild.id))
+
+        member = guild.get_member(member_id) if member_id is not None else None
+        member_name = member.display_name if member is not None else str(member_id)
+
+        if action == "add_spin":
+            if spin_type not in {"basic", "advanced", "deluxe"} or quantity <= 0:
+                flash("Spin ou quantite invalide.", "error")
+            else:
+                total = bot.add_gacha_spins(member_id, spin_type, quantity)
+                bot.record_spin_adjustment(member_id, member_name, guild.owner_id, "Owner Panel", spin_type, quantity, "add", reason, total)
+                flash(f"{quantity} spin(s) ajoutes. Nouveau total: {total}.", "success")
+        elif action == "remove_spin":
+            if spin_type not in {"basic", "advanced", "deluxe"} or quantity <= 0:
+                flash("Spin ou quantite invalide.", "error")
+            else:
+                total = bot.remove_gacha_spins(member_id, spin_type, quantity)
+                bot.record_spin_adjustment(member_id, member_name, guild.owner_id, "Owner Panel", spin_type, quantity, "remove", reason, total)
+                flash(f"{quantity} spin(s) retires. Nouveau total: {total}.", "success")
+        elif action == "note_add":
+            note = request.form.get("note", "").strip()
+            if not note:
+                flash("Note vide.", "error")
+            else:
+                bot.add_member_note(member_id, guild.owner_id, "Owner Panel", note)
+                flash("Note ajoutee.", "success")
+
+        target = member_id if member_id is not None else request.form.get("target_member_id", "")
+        return redirect(url_for("gacha_page", guild_id=guild.id, member_id=target))
+
+    stocks = []
+    for user_id, inventory in bot.gacha_data.get("inventories", {}).items():
+        total = int(inventory.get("basic", 0)) + int(inventory.get("advanced", 0)) + int(inventory.get("deluxe", 0))
+        if total <= 0:
+            continue
+        member = guild.get_member(int(user_id))
+        stocks.append(
+            {
+                "member_id": int(user_id),
+                "member_name": member.display_name if member else user_id,
+                "basic": int(inventory.get("basic", 0)),
+                "advanced": int(inventory.get("advanced", 0)),
+                "deluxe": int(inventory.get("deluxe", 0)),
+                "total": total,
+            }
+        )
+    stocks.sort(key=lambda item: item["total"], reverse=True)
+
+    selected_member_id = parse_int_or_none(request.args.get("member_id", ""))
+    selected_member = guild.get_member(selected_member_id) if selected_member_id is not None else None
+    selected_inventory = bot.get_gacha_inventory(selected_member_id) if selected_member_id is not None else None
+    selected_notes = bot.get_member_notes(selected_member_id) if selected_member_id is not None else []
+    selected_history = bot.get_member_grant_history(selected_member_id) if selected_member_id is not None else []
+    selected_history = list(reversed(selected_history[-20:])) if selected_history else []
+
+    return render_template(
+        "gacha_panel.html",
+        stocks=stocks,
+        selected_member=selected_member,
+        selected_member_id=selected_member_id,
+        selected_inventory=selected_inventory,
+        selected_notes=selected_notes,
+        selected_history=selected_history,
+        **panel_context("gacha"),
+    )
+
+
 def run_web_server() -> None:
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, use_reloader=False)

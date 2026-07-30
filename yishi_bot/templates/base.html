@@ -35,6 +35,8 @@
         <a class="{% if active_page == 'promotions' %}active{% endif %}" href="{{ url_for('promotions', guild_id=selected_guild.id if selected_guild else None) }}">Promotions</a>
         <a class="{% if active_page == 'tickets' %}active{% endif %}" href="{{ url_for('tickets_page', guild_id=selected_guild.id if selected_guild else None) }}">Tickets</a>
         <a class="{% if active_page == 'sales' %}active{% endif %}" href="{{ url_for('sales_page', guild_id=selected_guild.id if selected_guild else None) }}">Ventes</a>
+        <a class="{% if active_page == 'giveaways' %}active{% endif %}" href="{{ url_for('giveaways_page', guild_id=selected_guild.id if selected_guild else None) }}">Giveaways</a>
+        <a class="{% if active_page == 'gacha' %}active{% endif %}" href="{{ url_for('gacha_page', guild_id=selected_guild.id if selected_guild else None) }}">Gacha</a>
       </nav>
 
       {% if active_page != 'login' %}
