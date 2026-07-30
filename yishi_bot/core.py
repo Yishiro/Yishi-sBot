@@ -673,6 +673,8 @@ class YishiBot(commands.Bot):
             }
             self.save_levels()
             await self.update_temp_voice_owner_permissions(new_channel, member)
+            with contextlib.suppress(discord.HTTPException):
+                await new_channel.send(embed=self.build_temp_voice_commands_embed(member))
             return
 
         if after.channel is not None:
@@ -796,6 +798,48 @@ class YishiBot(commands.Bot):
             "Legende": {"accent": (255, 198, 64), "bg": (28, 18, 45)},
         }
         return themes.get(grade, themes["Novice"])
+
+    def build_temp_voice_commands_embed(self, member: discord.Member) -> discord.Embed:
+        stats = self.get_member_level_stats(member.guild.id, member.id)
+
+        def command_line(command: str, required_level: int, unlocked: bool) -> str:
+            status = "✅" if unlocked else "🔒"
+            suffix = "" if unlocked else f" • niveau {required_level}+"
+            return f"{status} `{command}`{suffix}"
+
+        embed = discord.Embed(
+            title="🔊 Commandes du vocal temporaire",
+            description=(
+                f"Bienvenue {member.mention}, ton vocal privé vient d'être créé.\n"
+                f"Tu es actuellement **niveau {stats['level']}** • **{stats['grade']}**."
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(
+            name="Gestion du vocal",
+            value="\n".join(
+                [
+                    command_line("/voc_lock", XP_GRADE_LEVELS["Actif"], self.can_manage_voice_feature(member, "lock")),
+                    command_line("/voc_unlock", XP_GRADE_LEVELS["Actif"], self.can_manage_voice_feature(member, "unlock")),
+                    command_line("/voc_limit", XP_GRADE_LEVELS["Actif"], self.can_manage_voice_feature(member, "limit")),
+                    command_line("/voc_rename", XP_GRADE_LEVELS["Elite"], self.can_manage_voice_feature(member, "rename")),
+                ]
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Gestion des membres",
+            value="\n".join(
+                [
+                    command_line("/voc_invite", XP_GRADE_LEVELS["Confirme"], self.can_manage_voice_feature(member, "invite")),
+                    command_line("/voc_kick", XP_GRADE_LEVELS["Confirme"], self.can_manage_voice_feature(member, "kick")),
+                    command_line("/voc_transfer", XP_GRADE_LEVELS["Legende"], self.can_manage_voice_feature(member, "transfer")),
+                ]
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Les commandes verrouillées se débloquent avec le système de niveau du serveur.")
+        return embed
 
     def render_level_card(self, member: discord.Member) -> str:
         from PIL import Image, ImageDraw, ImageFont
