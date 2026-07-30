@@ -865,7 +865,7 @@ class YishiBot(commands.Bot):
         rank = self.get_member_rank_position(member.guild.id, member.id)
         accent = tuple(self.get_level_theme(stats["grade"])["accent"])
 
-        width, height = 1500, 340
+        width, height = 1650, 400
         img = Image.new("RGB", (width, height), (14, 16, 23))
         draw = ImageDraw.Draw(img)
 
@@ -987,17 +987,17 @@ class YishiBot(commands.Bot):
             draw.polygon([(0, 0), (170, 0), (220, 44), (0, 44)], fill=(64, 39, 78))
             draw.polygon([(width, 0), (width - 170, 0), (width - 220, 44), (width, 44)], fill=(64, 39, 78))
 
-        avatar_center_x = 180
-        avatar_center_y = 160
-        outer_radius = 116
+        avatar_center_x = 205
+        avatar_center_y = 190
+        outer_radius = 132
         draw.ellipse((avatar_center_x - outer_radius, avatar_center_y - outer_radius, avatar_center_x + outer_radius, avatar_center_y + outer_radius), fill=card["orb1"])
-        inner_overlay = Image.new("RGBA", (220, 220), (0, 0, 0, 0))
+        inner_overlay = Image.new("RGBA", (252, 252), (0, 0, 0, 0))
         inner_draw = ImageDraw.Draw(inner_overlay)
-        for radius in range(94, 0, -1):
-            alpha = int(45 * (radius / 94))
-            inner_draw.ellipse((110 - radius, 110 - radius, 110 + radius, 110 + radius), fill=(*card["orb2"], alpha))
-        img.paste(inner_overlay, (avatar_center_x - 110, avatar_center_y - 110), inner_overlay)
-        draw.ellipse((avatar_center_x - 88, avatar_center_y - 88, avatar_center_x + 88, avatar_center_y + 88), outline=glow, width=6)
+        for radius in range(108, 0, -1):
+            alpha = int(45 * (radius / 108))
+            inner_draw.ellipse((126 - radius, 126 - radius, 126 + radius, 126 + radius), fill=(*card["orb2"], alpha))
+        img.paste(inner_overlay, (avatar_center_x - 126, avatar_center_y - 126), inner_overlay)
+        draw.ellipse((avatar_center_x - 102, avatar_center_y - 102, avatar_center_x + 102, avatar_center_y + 102), outline=glow, width=6)
 
         badge_pasted = False
         badge_path = badge_dir / card["badge"]
@@ -1013,7 +1013,7 @@ class YishiBot(commands.Bot):
                     if resampling is not None
                     else getattr(Image, "LANCZOS", Image.BICUBIC)
                 )
-                badge.thumbnail((220, 220), resample_filter)
+                badge.thumbnail((252, 252), resample_filter)
                 badge_x = avatar_center_x - badge.width // 2
                 badge_y = avatar_center_y - badge.height // 2
                 img.paste(badge, (badge_x, badge_y), badge)
@@ -1024,26 +1024,26 @@ class YishiBot(commands.Bot):
         if not badge_pasted:
             draw.text((avatar_center_x, avatar_center_y), initials, font=title_font, anchor="mm", fill=white)
 
-        right_x = 390
-        draw.text((right_x, 64), card["tag"], font=tiny_font, fill=card["tag_color"])
-        draw.text((right_x, 96), member.display_name, font=title_font, fill=white)
-        draw.text((right_x, 152), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=accent)
+        right_x = 460
+        draw.text((right_x, 78), card["tag"], font=tiny_font, fill=card["tag_color"])
+        draw.text((right_x, 116), member.display_name, font=title_font, fill=white)
+        draw.text((right_x, 176), f"{stats['grade'].upper()}  •  NIVEAU {stats['level']}", font=grade_font, fill=accent)
 
-        bar_x1, bar_y1, bar_x2, bar_y2 = right_x, 196, right_x + 850, 230
+        bar_x1, bar_y1, bar_x2, bar_y2 = right_x, 224, right_x + 920, 260
         draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=17, fill=bar_bg)
         fill_x = int(bar_x1 + (bar_x2 - bar_x1) * max(0.04, ratio))
         draw.rounded_rectangle((bar_x1, bar_y1, max(bar_x1 + 18, fill_x), bar_y2), radius=17, fill=accent)
-        draw.text((right_x, 248), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=body_font, fill=soft)
+        draw.text((right_x, 282), f"{stats['current_xp']} / {stats['needed_xp']} XP vers le prochain niveau", font=body_font, fill=soft)
 
-        stats_y = 282
+        stats_y = 318
         draw.text((right_x, stats_y), "XP TOTAL", font=small_font, fill=muted)
         draw.text((right_x, stats_y + 38), xp_text, font=value_font, fill=white)
         draw.text((right_x + 270, stats_y), "MESSAGES", font=small_font, fill=muted)
         draw.text((right_x + 270, stats_y + 38), str(stats["message_count"]), font=value_font, fill=white)
         draw.text((right_x + 540, stats_y), "TEMPS VOCAL", font=small_font, fill=muted)
         draw.text((right_x + 540, stats_y + 38), self.format_voice_duration(stats["voice_seconds"]), font=value_font, fill=white)
-        draw.text((right_x + 850, 248), "CLASSEMENT", font=small_font, fill=muted, anchor="ra")
-        draw.text((right_x + 850, 294), f"#{rank}", font=rank_font, fill=white, anchor="ra")
+        draw.text((right_x + 920, 278), "CLASSEMENT", font=small_font, fill=muted, anchor="ra")
+        draw.text((right_x + 920, 332), f"#{rank}", font=rank_font, fill=white, anchor="ra")
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         tmp.close()
