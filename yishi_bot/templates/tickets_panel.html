@@ -2,6 +2,13 @@
 {% block title %}Tickets - Yishi Panel{% endblock %}
 {% block header %}Tickets{% endblock %}
 {% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Ouverts</span><strong>{{ ticket_stats.open }}</strong></article>
+  <article class="stat-card"><span>Archives</span><strong>{{ ticket_stats.archived }}</strong></article>
+  <article class="stat-card"><span>Helpers assignes</span><strong>{{ ticket_stats.helpers }}</strong></article>
+  <article class="stat-card"><span>Points staff</span><strong>{{ ticket_stats.staff_points }}</strong></article>
+</section>
+
 <section class="panel-section two-grid">
   <article>
     <div class="section-head">

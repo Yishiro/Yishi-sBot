@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 from functools import wraps
@@ -9,7 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
 
 from yishi_bot.constants import FREE_INVITE_REQUIREMENT, XP_GRADE_LEVELS
 from yishi_bot.helpers import parse_duration
@@ -237,6 +238,15 @@ def build_quick_action_items() -> list[dict[str, str]]:
     return [{"key": key, "label": label} for key, label in QUICK_ACTIONS]
 
 
+def json_download(data: dict[str, Any], filename: str) -> Response:
+    payload = json.dumps(data, ensure_ascii=False, indent=2)
+    return Response(
+        payload,
+        mimetype="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def available_guilds() -> list[Any]:
     bot = get_bot()
     if bot is None:
@@ -397,6 +407,140 @@ def invite_rows_for(guild: Any | None) -> list[dict[str, Any]]:
         )
     rows.sort(key=lambda item: (item["weekly"], item["total"]), reverse=True)
     return rows
+
+
+def promotion_stats_for(guild: Any | None) -> dict[str, int]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return {"total": 0, "active": 0, "inactive": 0}
+    promos = bot.get_promo_store(guild.id).get("promotions", [])
+    active = sum(1 for promo in promos if promo.get("active", True))
+    return {"total": len(promos), "active": active, "inactive": len(promos) - active}
+
+
+def giveaway_stats_for(guild: Any | None) -> dict[str, int]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return {"active": 0, "ended": 0, "blacklist": 0, "forced": 0}
+    entries = bot.get_giveaway_entries(guild.id)
+    active = sum(1 for item in entries.values() if item.get("status") == "active")
+    ended = sum(1 for item in entries.values() if item.get("status") != "active")
+    forced = sum(1 for item in entries.values() if item.get("forced_winner_id"))
+    blacklist = len(bot.get_giveaway_blacklist(guild.id))
+    return {"active": active, "ended": ended, "blacklist": blacklist, "forced": forced}
+
+
+def gacha_stats_for(guild: Any | None) -> dict[str, int]:
+    bot = get_bot()
+    if bot is None:
+        return {"members": 0, "basic": 0, "advanced": 0, "deluxe": 0, "history": 0, "notes": 0}
+    inventories = bot.gacha_data.get("inventories", {})
+    note_count = sum(len(value) for value in bot.gacha_data.get("member_notes", {}).values())
+    return {
+        "members": sum(1 for inv in inventories.values() if sum(int(inv.get(name, 0)) for name in ("basic", "advanced", "deluxe")) > 0),
+        "basic": sum(int(inv.get("basic", 0)) for inv in inventories.values()),
+        "advanced": sum(int(inv.get("advanced", 0)) for inv in inventories.values()),
+        "deluxe": sum(int(inv.get("deluxe", 0)) for inv in inventories.values()),
+        "history": len(bot.gacha_data.get("grant_history", [])),
+        "notes": note_count,
+    }
+
+
+def ticket_stats_for(guild: Any | None) -> dict[str, int]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return {"open": 0, "archived": 0, "helpers": 0, "staff_points": 0}
+    channels = bot.get_ticket_store(guild.id).get("channels", {})
+    open_count = sum(1 for ticket in channels.values() if ticket.get("status") != "archived")
+    archived_count = sum(1 for ticket in channels.values() if ticket.get("status") == "archived")
+    helper_count = sum(1 for ticket in channels.values() if ticket.get("assigned_helper_id"))
+    staff_points = sum(int(value) for value in bot.get_ticket_store(guild.id).get("staff_points", {}).values())
+    return {"open": open_count, "archived": archived_count, "helpers": helper_count, "staff_points": staff_points}
+
+
+def sales_stats_for(guild: Any | None) -> dict[str, int]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return {"pending": 0, "active": 0, "reserved": 0, "channels": 0}
+    store = bot.get_sale_store(guild.id)
+    messages = store.get("messages", {})
+    return {
+        "pending": len(store.get("reviews", {})),
+        "active": sum(1 for sale in messages.values() if sale.get("status") != "reserved"),
+        "reserved": sum(1 for sale in messages.values() if sale.get("status") == "reserved"),
+        "channels": len(store.get("channels", {})),
+    }
+
+
+def invite_stats_for(guild: Any | None) -> dict[str, int]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return {"tracked": 0, "weekly_ready": 0, "from_now_total": 0}
+    rows = invite_rows_for(guild)
+    return {
+        "tracked": len(rows),
+        "weekly_ready": sum(1 for row in rows if row["weekly"] >= FREE_INVITE_REQUIREMENT),
+        "from_now_total": sum(int(row["from_now"]) for row in rows),
+    }
+
+
+def logs_types_for(guild: Any | None) -> list[str]:
+    entries = activity_feed_for(guild, limit=200)
+    return sorted({entry["type"] for entry in entries})
+
+
+def member_hub_data(guild: Any | None, member_id: int | None) -> dict[str, Any] | None:
+    bot = get_bot()
+    if bot is None or guild is None or member_id is None:
+        return None
+    member = guild.get_member(member_id)
+    if member is None:
+        return None
+
+    level_stats = bot.get_member_level_stats(guild.id, member.id)
+    invite_store = bot.get_invite_store(guild.id)
+    total_invites = int(invite_store.get("counts", {}).get(str(member.id), 0))
+    weekly_invites = int(invite_store.get("weekly_counts", {}).get(str(member.id), 0))
+    from_now_invites = bot.get_invite_role_count_from_now(guild.id, member.id)
+    inventory = bot.get_gacha_inventory(member.id)
+    notes = bot.get_member_notes(member.id)
+    history = bot.get_member_grant_history(member.id)
+    open_tickets = bot.get_open_tickets_for_user(guild.id, member.id)
+    blacklist = bot.get_giveaway_blacklist(guild.id).get(str(member.id))
+    sale_store = bot.get_sale_store(guild.id)
+    selling = [sale for sale in sale_store.get("messages", {}).values() if int(sale.get("seller_id", 0)) == member.id]
+    buying = [sale for sale in sale_store.get("messages", {}).values() if int(sale.get("buyer_id", 0)) == member.id]
+    free_role = None
+    config = bot.get_guild_config(guild.id)
+    if config.get("free_access_role_id"):
+        free_role = guild.get_role(config["free_access_role_id"])
+
+    return {
+        "member": member,
+        "roles": [role.name for role in member.roles if not role.is_default()],
+        "joined_at": iso_to_local(member.joined_at.isoformat()) if member.joined_at else "-",
+        "created_at": iso_to_local(member.created_at.isoformat()) if member.created_at else "-",
+        "level": level_stats,
+        "level_rank": bot.get_member_rank_position(guild.id, member.id),
+        "voice_text": bot.format_voice_duration(level_stats["voice_seconds"]),
+        "invites": {
+            "total": total_invites,
+            "weekly": weekly_invites,
+            "from_now": from_now_invites,
+            "free_access": bool(free_role is not None and free_role in member.roles) or weekly_invites >= FREE_INVITE_REQUIREMENT,
+        },
+        "gacha": {
+            "inventory": inventory,
+            "notes": list(reversed(notes[-10:])),
+            "history": list(reversed(history[-10:])),
+        },
+        "tickets": open_tickets,
+        "sales": {
+            "selling": selling,
+            "buying": buying,
+        },
+        "giveaway_blacklist": blacklist,
+    }
 
 
 def activity_feed_for(guild: Any | None, *, limit: int = 40) -> list[dict[str, Any]]:
@@ -611,6 +755,12 @@ def dashboard():
         overview=get_guild_overview(guild),
         quick_actions=build_quick_action_items(),
         recent_activity=activity_feed_for(guild, limit=8),
+        ticket_stats=ticket_stats_for(guild),
+        sales_stats=sales_stats_for(guild),
+        giveaway_stats=giveaway_stats_for(guild),
+        gacha_stats=gacha_stats_for(guild),
+        invite_stats=invite_stats_for(guild),
+        promo_stats=promotion_stats_for(guild),
         **panel_context("dashboard"),
     )
 
@@ -760,6 +910,7 @@ def promotions():
     return render_template(
         "promotions.html",
         promotions=promotions_list,
+        promo_stats=promotion_stats_for(guild),
         **panel_context("promotions"),
     )
 
@@ -830,6 +981,7 @@ def tickets_page():
         open_tickets=open_tickets,
         archived_tickets=archived_tickets,
         staff_points=staff_points[:15],
+        ticket_stats=ticket_stats_for(guild),
         **panel_context("tickets"),
     )
 
@@ -901,11 +1053,7 @@ def sales_page():
         pending_sales=pending_sales,
         active_sales=active_sales,
         reserved_sales=reserved_sales,
-        sales_stats={
-            "pending": len(pending_sales),
-            "active": len(active_sales),
-            "reserved": len(reserved_sales),
-        },
+        sales_stats=sales_stats_for(guild),
         **panel_context("sales"),
     )
 
@@ -1063,6 +1211,7 @@ def giveaways_page():
         active_giveaways=active_giveaways,
         ended_giveaways=ended_giveaways,
         blacklist_entries=blacklist_entries,
+        giveaway_stats=giveaway_stats_for(guild),
         **panel_context("giveaways"),
     )
 
@@ -1156,6 +1305,7 @@ def gacha_page():
         selected_inventory=selected_inventory,
         selected_notes=selected_notes,
         selected_history=selected_history,
+        gacha_stats=gacha_stats_for(guild),
         **panel_context("gacha"),
     )
 
@@ -1227,6 +1377,7 @@ def invites_page():
         free_role_name=free_role.name if free_role is not None else "-",
         weekly_requirement=FREE_INVITE_REQUIREMENT,
         weekly_reset_label=weekly_reset_label,
+        invite_stats=invite_stats_for(guild),
         **panel_context("invites"),
     )
 
@@ -1281,6 +1432,11 @@ def levels_page():
         leaderboard=leaderboard[:30],
         selected_profile=selected_profile,
         grade_rules=LEVEL_FEATURE_RULES,
+        level_stats={
+            "tracked": len(leaderboard),
+            "top_level": leaderboard[0]["level"] if leaderboard else 0,
+            "top_xp": leaderboard[0]["xp"] if leaderboard else 0,
+        },
         **panel_context("levels"),
     )
 
@@ -1289,9 +1445,15 @@ def levels_page():
 @login_required
 def logs_page():
     guild = selected_guild()
+    selected_type = request.args.get("type", "").strip()
+    entries = activity_feed_for(guild, limit=120)
+    if selected_type:
+        entries = [entry for entry in entries if entry["type"] == selected_type]
     return render_template(
         "logs_panel.html",
-        entries=activity_feed_for(guild, limit=60),
+        entries=entries,
+        log_types=logs_types_for(guild),
+        selected_type=selected_type,
         **panel_context("logs"),
     )
 
@@ -1328,6 +1490,87 @@ def security_page():
         quick_actions=build_quick_action_items(),
         **panel_context("security"),
     )
+
+
+@app.route("/members", methods=["GET", "POST"])
+@login_required
+def members_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template("members_panel.html", selected_profile=None, **panel_context("members"))
+
+    selected_member_id = parse_int_or_none(request.values.get("member_id", ""))
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        selected_member_id = parse_int_or_none(request.form.get("member_id", "")) or selected_member_id
+        member = guild.get_member(selected_member_id) if selected_member_id is not None else None
+        if action == "sync_member_invites":
+            if member is None:
+                flash("Membre introuvable.", "error")
+            else:
+                ok, message = run_bot_coroutine(bot.sync_member_invite_roles(member), timeout=60)
+                flash("Roles invitations du membre synchronises." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "blacklist_add":
+            reason = request.form.get("reason", "").strip() or "Aucune raison"
+            if selected_member_id is None:
+                flash("ID membre invalide.", "error")
+            else:
+                store = bot.get_giveaway_blacklist(guild.id)
+                store[str(selected_member_id)] = {
+                    "reason": reason,
+                    "added_by": guild.owner_id,
+                    "added_at": datetime.now(tz=_paris_tz).isoformat(),
+                }
+                bot.save_giveaways()
+                flash("Membre ajoute a la blacklist giveaways.", "success")
+        elif action == "blacklist_remove":
+            if selected_member_id is None:
+                flash("ID membre invalide.", "error")
+            else:
+                bot.get_giveaway_blacklist(guild.id).pop(str(selected_member_id), None)
+                bot.save_giveaways()
+                flash("Membre retire de la blacklist giveaways.", "success")
+        elif action == "free_sync":
+            ok, message = run_bot_coroutine(bot.sync_all_free_access_roles(guild), timeout=120)
+            flash("Acces free resynchronises." if ok else f"Echec: {message}", "success" if ok else "error")
+        return redirect(url_for("members_page", guild_id=guild.id, member_id=selected_member_id or ""))
+
+    selected_profile = member_hub_data(guild, selected_member_id)
+    top_members = level_rows_for(guild)[:12]
+    return render_template(
+        "members_panel.html",
+        selected_profile=selected_profile,
+        top_members=top_members,
+        **panel_context("members"),
+    )
+
+
+@app.route("/export/<dataset>")
+@login_required
+def export_dataset(dataset: str):
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        return Response("Bot ou serveur indisponible.", status=503)
+
+    exports = {
+        "config": bot.get_guild_config(guild.id),
+        "tickets": bot.get_ticket_store(guild.id),
+        "sales": bot.get_sale_store(guild.id),
+        "giveaways": {
+            "entries": bot.get_giveaway_entries(guild.id),
+            "blacklist": bot.get_giveaway_blacklist(guild.id),
+        },
+        "promotions": bot.get_promo_store(guild.id),
+        "invites": bot.get_invite_store(guild.id),
+        "levels": bot.get_level_store(guild.id),
+        "gacha": bot.gacha_data,
+    }
+    if dataset not in exports:
+        return Response("Dataset inconnu.", status=404)
+    return json_download(exports[dataset], f"{guild.id}-{dataset}.json")
 
 
 def run_web_server() -> None:

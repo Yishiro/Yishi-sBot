@@ -2,6 +2,15 @@
 {% block title %}Gacha - Yishi Panel{% endblock %}
 {% block header %}Gacha{% endblock %}
 {% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Membres avec stock</span><strong>{{ gacha_stats.members }}</strong></article>
+  <article class="stat-card"><span>Basic stock</span><strong>{{ gacha_stats.basic }}</strong></article>
+  <article class="stat-card"><span>Advanced stock</span><strong>{{ gacha_stats.advanced }}</strong></article>
+  <article class="stat-card"><span>Deluxe stock</span><strong>{{ gacha_stats.deluxe }}</strong></article>
+  <article class="stat-card"><span>Historique</span><strong>{{ gacha_stats.history }}</strong></article>
+  <article class="stat-card"><span>Notes membres</span><strong>{{ gacha_stats.notes }}</strong></article>
+</section>
+
 <section class="panel-section">
   <div class="section-head">
     <div>

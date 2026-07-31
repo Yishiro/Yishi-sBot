@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Membres - Yishi Panel{% endblock %}
+{% block header %}Membres{% endblock %}
+{% block content %}
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Rechercher un membre</h2>
+        <p>Entre un ID Discord pour ouvrir sa fiche complete owner.</p>
+      </div>
+    </div>
+    <form method="get" class="form-grid">
+      {% if selected_guild %}<input type="hidden" name="guild_id" value="{{ selected_guild.id }}">{% endif %}
+      <label>
+        <span>ID membre</span>
+        <input type="text" name="member_id" value="{{ request.args.get('member_id', '') }}" placeholder="ID Discord">
+      </label>
+      <button type="submit" class="button">Ouvrir la fiche</button>
+    </form>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Top membres XP</h2>
+        <p>Acces rapide aux membres les plus actifs du serveur.</p>
+      </div>
+    </div>
+    {% if top_members %}
+    <div class="list-stack">
+      {% for row in top_members %}
+      <div class="list-card">
+        <div class="mini-meta"><span>#{{ row.rank }}</span><span>{{ row.grade }}</span><span>Niveau {{ row.level }}</span></div>
+        <h3>{{ row.member_name }}</h3>
+        <a class="button secondary" href="{{ url_for('members_page', guild_id=selected_guild.id if selected_guild else None, member_id=row.member_id) }}">Voir la fiche</a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun membre suivi en XP pour le moment.</div>
+    {% endif %}
+  </article>
+</section>
+
+{% if selected_profile %}
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Fiche membre</h2>
+      <p>{{ selected_profile.member.display_name }} - {{ selected_profile.member.id }}</p>
+    </div>
+    <span class="pill {% if selected_profile.invites.free_access %}success{% else %}warning{% endif %}">
+      {% if selected_profile.invites.free_access %}Acces free actif{% else %}Acces free inactif{% endif %}
+    </span>
+  </div>
+
+  <div class="cards-grid">
+    <article class="stat-card"><span>Niveau</span><strong>{{ selected_profile.level.level }}</strong></article>
+    <article class="stat-card"><span>Grade</span><strong>{{ selected_profile.level.grade }}</strong></article>
+    <article class="stat-card"><span>XP total</span><strong>{{ selected_profile.level.xp }}</strong></article>
+    <article class="stat-card"><span>Rang XP</span><strong>#{{ selected_profile.level_rank }}</strong></article>
+    <article class="stat-card"><span>Invites total</span><strong>{{ selected_profile.invites.total }}</strong></article>
+    <article class="stat-card"><span>Invites weekly</span><strong>{{ selected_profile.invites.weekly }}</strong></article>
+    <article class="stat-card"><span>Invites from now</span><strong>{{ selected_profile.invites.from_now }}</strong></article>
+    <article class="stat-card"><span>Temps vocal</span><strong>{{ selected_profile.voice_text }}</strong></article>
+  </div>
+</section>
+
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Profil & roles</h2>
+        <p>Informations generales sur le membre.</p>
+      </div>
+    </div>
+    <div class="list-card">
+      <p><strong>Compte cree :</strong> {{ selected_profile.created_at }}</p>
+      <p><strong>Arrivee sur le serveur :</strong> {{ selected_profile.joined_at }}</p>
+      <p><strong>Messages XP :</strong> {{ selected_profile.level.message_count }}</p>
+      <p><strong>Roles :</strong> {{ selected_profile.roles|join(', ') if selected_profile.roles else 'Aucun role special' }}</p>
+    </div>
+    <div class="form-actions" style="margin-top:12px;">
+      <form method="post">
+        <input type="hidden" name="member_id" value="{{ selected_profile.member.id }}">
+        <input type="hidden" name="action" value="sync_member_invites">
+        <button type="submit" class="button secondary">Sync roles invitations</button>
+      </form>
+      <form method="post">
+        <input type="hidden" name="member_id" value="{{ selected_profile.member.id }}">
+        <input type="hidden" name="action" value="free_sync">
+        <button type="submit" class="button secondary">Resync acces free</button>
+      </form>
+    </div>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Blacklist giveaways</h2>
+        <p>Gestion discrete sur ce membre.</p>
+      </div>
+    </div>
+    {% if selected_profile.giveaway_blacklist %}
+    <div class="list-card">
+      <p><strong>Raison :</strong> {{ selected_profile.giveaway_blacklist.reason }}</p>
+      <p><strong>Ajoute le :</strong> {{ selected_profile.giveaway_blacklist.added_at }}</p>
+      <form method="post" style="margin-top:12px;">
+        <input type="hidden" name="member_id" value="{{ selected_profile.member.id }}">
+        <input type="hidden" name="action" value="blacklist_remove">
+        <button type="submit" class="button danger">Retirer de la blacklist</button>
+      </form>
+    </div>
+    {% else %}
+    <form method="post" class="form-grid">
+      <input type="hidden" name="member_id" value="{{ selected_profile.member.id }}">
+      <input type="hidden" name="action" value="blacklist_add">
+      <label>
+        <span>Raison interne</span>
+        <input type="text" name="reason" placeholder="Raison de la blacklist">
+      </label>
+      <button type="submit" class="button">Ajouter a la blacklist</button>
+    </form>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Stocks gacha</h2>
+        <p>Etat current du membre.</p>
+      </div>
+    </div>
+    <div class="cards-grid">
+      <article class="stat-card"><span>Basic</span><strong>{{ selected_profile.gacha.inventory.basic }}</strong></article>
+      <article class="stat-card"><span>Advanced</span><strong>{{ selected_profile.gacha.inventory.advanced }}</strong></article>
+      <article class="stat-card"><span>Deluxe</span><strong>{{ selected_profile.gacha.inventory.deluxe }}</strong></article>
+    </div>
+    <div class="form-actions" style="margin-top:12px;">
+      <a class="button secondary" href="{{ url_for('gacha_page', guild_id=selected_guild.id if selected_guild else None, member_id=selected_profile.member.id) }}">Ouvrir la gestion gacha</a>
+    </div>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Notes recentes</h2>
+        <p>Dernieres notes staff et historique gacha.</p>
+      </div>
+    </div>
+    {% if selected_profile.gacha.notes %}
+    <div class="list-stack">
+      {% for note in selected_profile.gacha.notes %}
+      <div class="list-card">
+        <div class="mini-meta"><span>{{ note.author_name }}</span><span>{{ note.timestamp }}</span></div>
+        <p>{{ note.content }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucune note recente.</div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Tickets ouverts</h2>
+        <p>Tickets actuellement ouverts par ce membre.</p>
+      </div>
+    </div>
+    {% if selected_profile.tickets %}
+    <div class="list-stack">
+      {% for ticket in selected_profile.tickets %}
+      <div class="list-card">
+        <div class="mini-meta">
+          <span>#{{ ticket.number }}</span>
+          <span>{{ ticket.type }}</span>
+          <span>{{ ticket.destination }}</span>
+        </div>
+        <p>Status: {{ ticket.status }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun ticket ouvert.</div>
+    {% endif %}
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Ventes membres</h2>
+        <p>Annonces ou transactions liees a ce membre.</p>
+      </div>
+    </div>
+    <div class="list-stack">
+      <div class="list-card">
+        <div class="mini-meta"><span>Ventes en tant que vendeur</span><span>{{ selected_profile.sales.selling|length }}</span></div>
+        <p>
+          {% if selected_profile.sales.selling %}
+            {{ selected_profile.sales.selling|map(attribute='product')|join(', ') }}
+          {% else %}
+            Aucune vente en cours en tant que vendeur.
+          {% endif %}
+        </p>
+      </div>
+      <div class="list-card">
+        <div class="mini-meta"><span>Ventes en tant qu'acheteur</span><span>{{ selected_profile.sales.buying|length }}</span></div>
+        <p>
+          {% if selected_profile.sales.buying %}
+            {{ selected_profile.sales.buying|map(attribute='product')|join(', ') }}
+          {% else %}
+            Aucune vente en cours en tant qu'acheteur.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </article>
+</section>
+{% endif %}
+{% endblock %}

@@ -59,7 +59,43 @@
         <button type="submit" class="button {% if action.key == 'sync_commands' %}secondary{% endif %} full">{{ action.label }}</button>
       </form>
       {% endfor %}
+      {% if selected_guild %}
+      <a class="button secondary full" href="{{ url_for('members_page', guild_id=selected_guild.id) }}">Ouvrir le hub membres</a>
+      {% endif %}
     </div>
+  </article>
+</section>
+
+<section class="panel-section cards-grid">
+  <article class="info-card">
+    <div class="card-head"><h3>Tickets</h3></div>
+    <div class="mini-meta"><span>Ouverts {{ ticket_stats.open }}</span><span>Archives {{ ticket_stats.archived }}</span></div>
+    <p>Helpers assignes: {{ ticket_stats.helpers }}<br>Points staff: {{ ticket_stats.staff_points }}</p>
+  </article>
+  <article class="info-card">
+    <div class="card-head"><h3>Ventes</h3></div>
+    <div class="mini-meta"><span>Pending {{ sales_stats.pending }}</span><span>Actives {{ sales_stats.active }}</span></div>
+    <p>Reservees: {{ sales_stats.reserved }}<br>Salons prives: {{ sales_stats.channels }}</p>
+  </article>
+  <article class="info-card">
+    <div class="card-head"><h3>Giveaways</h3></div>
+    <div class="mini-meta"><span>Actifs {{ giveaway_stats.active }}</span><span>Termines {{ giveaway_stats.ended }}</span></div>
+    <p>Blacklist: {{ giveaway_stats.blacklist }}<br>Forced winners: {{ giveaway_stats.forced }}</p>
+  </article>
+  <article class="info-card">
+    <div class="card-head"><h3>Gacha</h3></div>
+    <div class="mini-meta"><span>Membres {{ gacha_stats.members }}</span><span>Historique {{ gacha_stats.history }}</span></div>
+    <p>Basic: {{ gacha_stats.basic }}<br>Advanced: {{ gacha_stats.advanced }}<br>Deluxe: {{ gacha_stats.deluxe }}</p>
+  </article>
+  <article class="info-card">
+    <div class="card-head"><h3>Invitations</h3></div>
+    <div class="mini-meta"><span>Suivis {{ invite_stats.tracked }}</span><span>Eligibles free {{ invite_stats.weekly_ready }}</span></div>
+    <p>Total from now: {{ invite_stats.from_now_total }}</p>
+  </article>
+  <article class="info-card">
+    <div class="card-head"><h3>Promotions</h3></div>
+    <div class="mini-meta"><span>Total {{ promo_stats.total }}</span><span>Actives {{ promo_stats.active }}</span></div>
+    <p>Inactives: {{ promo_stats.inactive }}</p>
   </article>
 </section>
 
@@ -123,5 +159,24 @@
     <div class="empty-state">Aucune activite recente a afficher.</div>
     {% endif %}
   </article>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Exports rapides</h2>
+      <p>Backup manuel des donnees du serveur en JSON.</p>
+    </div>
+  </div>
+  <div class="quick-links">
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='config', guild_id=selected_guild.id if selected_guild else None) }}">Exporter config</a>
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='tickets', guild_id=selected_guild.id if selected_guild else None) }}">Exporter tickets</a>
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='sales', guild_id=selected_guild.id if selected_guild else None) }}">Exporter ventes</a>
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='giveaways', guild_id=selected_guild.id if selected_guild else None) }}">Exporter giveaways</a>
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='invites', guild_id=selected_guild.id if selected_guild else None) }}">Exporter invites</a>
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='levels', guild_id=selected_guild.id if selected_guild else None) }}">Exporter XP</a>
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='gacha', guild_id=selected_guild.id if selected_guild else None) }}">Exporter gacha</a>
+    <a class="button secondary" href="{{ url_for('export_dataset', dataset='promotions', guild_id=selected_guild.id if selected_guild else None) }}">Exporter promos</a>
+  </div>
 </section>
 {% endblock %}

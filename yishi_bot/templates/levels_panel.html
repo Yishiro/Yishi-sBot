@@ -2,6 +2,12 @@
 {% block title %}XP & niveaux - Yishi Panel{% endblock %}
 {% block header %}XP & niveaux{% endblock %}
 {% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Membres suivis</span><strong>{{ level_stats.tracked }}</strong></article>
+  <article class="stat-card"><span>Top niveau</span><strong>{{ level_stats.top_level }}</strong></article>
+  <article class="stat-card"><span>Top XP</span><strong>{{ level_stats.top_xp }}</strong></article>
+</section>
+
 <section class="panel-section two-grid">
   <article>
     <div class="section-head">

@@ -10,6 +10,19 @@
     </div>
     <span class="pill">Lecture rapide</span>
   </div>
+  <form method="get" class="form-grid form-grid-double" style="margin-bottom:16px;">
+    {% if selected_guild %}<input type="hidden" name="guild_id" value="{{ selected_guild.id }}">{% endif %}
+    <label>
+      <span>Filtrer par type</span>
+      <select name="type">
+        <option value="">Tous</option>
+        {% for item in log_types %}
+        <option value="{{ item }}" {% if selected_type == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="button">Appliquer</button>
+  </form>
   {% if entries %}
   <div class="list-stack">
     {% for entry in entries %}

@@ -30,6 +30,7 @@
 
       <nav class="nav">
         <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard', guild_id=selected_guild.id if selected_guild else None) }}">Dashboard</a>
+        <a class="{% if active_page == 'members' %}active{% endif %}" href="{{ url_for('members_page', guild_id=selected_guild.id if selected_guild else None) }}">Membres</a>
         <a class="{% if active_page == 'config' %}active{% endif %}" href="{{ url_for('config_page', guild_id=selected_guild.id if selected_guild else None) }}">Configuration</a>
         <a class="{% if active_page == 'auto_messages' %}active{% endif %}" href="{{ url_for('auto_messages', guild_id=selected_guild.id if selected_guild else None) }}">Messages auto</a>
         <a class="{% if active_page == 'levels' %}active{% endif %}" href="{{ url_for('levels_page', guild_id=selected_guild.id if selected_guild else None) }}">XP & niveaux</a>
@@ -56,7 +57,7 @@
           <h1>{% block header %}Owner Panel{% endblock %}</h1>
           <p>
             {% if bot_online %}Bot en ligne{% else %}Bot hors ligne{% endif %}
-            {% if selected_guild %}• {{ selected_guild.name }}{% endif %}
+            {% if selected_guild %} - {{ selected_guild.name }}{% endif %}
           </p>
         </div>
         <div class="status-card">

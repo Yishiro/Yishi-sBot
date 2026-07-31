@@ -3,6 +3,9 @@
 {% block header %}Invitations & free{% endblock %}
 {% block content %}
 <section class="cards-grid">
+  <article class="stat-card"><span>Membres suivis</span><strong>{{ invite_stats.tracked }}</strong></article>
+  <article class="stat-card"><span>Eligibles free</span><strong>{{ invite_stats.weekly_ready }}</strong></article>
+  <article class="stat-card"><span>Total from now</span><strong>{{ invite_stats.from_now_total }}</strong></article>
   <article class="stat-card"><span>Role free</span><strong>{{ free_role_name }}</strong></article>
   <article class="stat-card"><span>Condition free</span><strong>{{ weekly_requirement }} invites / semaine</strong></article>
   <article class="stat-card"><span>Dernier reset weekly</span><strong>{{ weekly_reset_label }}</strong></article>

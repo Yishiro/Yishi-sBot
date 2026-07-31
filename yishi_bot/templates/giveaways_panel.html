@@ -2,6 +2,13 @@
 {% block title %}Giveaways - Yishi Panel{% endblock %}
 {% block header %}Giveaways{% endblock %}
 {% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Actifs</span><strong>{{ giveaway_stats.active }}</strong></article>
+  <article class="stat-card"><span>Termines</span><strong>{{ giveaway_stats.ended }}</strong></article>
+  <article class="stat-card"><span>Blacklist</span><strong>{{ giveaway_stats.blacklist }}</strong></article>
+  <article class="stat-card"><span>Forced winners</span><strong>{{ giveaway_stats.forced }}</strong></article>
+</section>
+
 <section class="panel-section">
   <div class="section-head">
     <div>
