@@ -5,8 +5,8 @@
 <section class="panel-section">
   <div class="section-head">
     <div>
-      <h2>Activite agregée</h2>
-      <p>Vue panel des derniers tickets, ventes, giveaways, promos et mouvements gacha connus par le bot.</p>
+      <h2>Activité agrégée</h2>
+      <p>Vue panel des derniers tickets, ventes, giveaways, promotions et mouvements gacha connus par le bot.</p>
     </div>
     <span class="pill">Lecture rapide</span>
   </div>
@@ -20,6 +20,10 @@
         <option value="{{ item }}" {% if selected_type == item %}selected{% endif %}>{{ item }}</option>
         {% endfor %}
       </select>
+    </label>
+    <label>
+      <span>Recherche texte</span>
+      <input type="text" name="q" value="{{ query }}" placeholder="membre, produit, review, salon...">
     </label>
     <button type="submit" class="button">Appliquer</button>
   </form>
@@ -37,7 +41,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state">Aucune activite exploitable n'a ete trouvee dans les stores du bot.</div>
+  <div class="empty-state">Aucune activité exploitable n'a été trouvée dans les stores du bot.</div>
   {% endif %}
 </section>
 {% endblock %}

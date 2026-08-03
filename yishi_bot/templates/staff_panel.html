@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Staff - Yishi Panel{% endblock %}
+{% block header %}Staff{% endblock %}
+{% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Membres staff suivis</span><strong>{{ staff_rows|length }}</strong></article>
+  <article class="stat-card"><span>Points cumulés</span><strong>{{ staff_rows|sum(attribute='points') if staff_rows else 0 }}</strong></article>
+  <article class="stat-card"><span>Claims actifs</span><strong>{{ staff_rows|sum(attribute='active_claims') if staff_rows else 0 }}</strong></article>
+  <article class="stat-card"><span>Tickets résolus</span><strong>{{ staff_rows|sum(attribute='resolved_tickets') if staff_rows else 0 }}</strong></article>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Classement staff support</h2>
+      <p>Vue owner des claims, résolutions, transferts et points liés aux tickets.</p>
+    </div>
+  </div>
+  {% if staff_rows %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Membre</th>
+          <th>Points</th>
+          <th>Claims actifs</th>
+          <th>Tickets résolus</th>
+          <th>Transferts</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in staff_rows %}
+        <tr>
+          <td>{{ row.member_name }}</td>
+          <td>{{ row.points }}</td>
+          <td>{{ row.active_claims }}</td>
+          <td>{{ row.resolved_tickets }}</td>
+          <td>{{ row.transfers }}</td>
+          <td>
+            <a class="button secondary" href="{{ url_for('members_page', guild_id=selected_guild.id if selected_guild else None, member_id=row.member_id) }}">Voir la fiche</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune donnée staff disponible pour le moment.</div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -506,14 +506,34 @@ def member_hub_data(guild: Any | None, member_id: int | None) -> dict[str, Any] 
     notes = bot.get_member_notes(member.id)
     history = bot.get_member_grant_history(member.id)
     open_tickets = bot.get_open_tickets_for_user(guild.id, member.id)
+    archived_tickets = [
+        ticket
+        for ticket in bot.get_ticket_store(guild.id)["channels"].values()
+        if ticket.get("owner_id") == member.id and ticket.get("status") == "archived"
+    ]
     blacklist = bot.get_giveaway_blacklist(guild.id).get(str(member.id))
     sale_store = bot.get_sale_store(guild.id)
     selling = [sale for sale in sale_store.get("messages", {}).values() if int(sale.get("seller_id", 0)) == member.id]
     buying = [sale for sale in sale_store.get("messages", {}).values() if int(sale.get("buyer_id", 0)) == member.id]
+    giveaway_entries = bot.get_giveaway_entries(guild.id)
+    giveaway_participations = []
+    giveaway_wins = []
+    for giveaway in giveaway_entries.values():
+        participants = [int(item) for item in giveaway.get("participants", [])]
+        winners = [int(item) for item in giveaway.get("winners", [])]
+        if member.id in participants:
+            giveaway_participations.append(giveaway)
+        if member.id in winners:
+            giveaway_wins.append(giveaway)
     free_role = None
     config = bot.get_guild_config(guild.id)
     if config.get("free_access_role_id"):
         free_role = guild.get_role(config["free_access_role_id"])
+    recent_member_logs = [
+        entry
+        for entry in activity_feed_for(guild, limit=150)
+        if str(member.id) in entry["detail"] or member.display_name.lower() in entry["detail"].lower()
+    ][:12]
 
     return {
         "member": member,
@@ -535,11 +555,18 @@ def member_hub_data(guild: Any | None, member_id: int | None) -> dict[str, Any] 
             "history": list(reversed(history[-10:])),
         },
         "tickets": open_tickets,
+        "tickets_archived": list(reversed(archived_tickets[-10:])),
         "sales": {
             "selling": selling,
             "buying": buying,
         },
+        "giveaways": {
+            "participations": giveaway_participations,
+            "wins": giveaway_wins,
+        },
         "giveaway_blacklist": blacklist,
+        "staff_points": bot.get_staff_point_total(guild.id, member.id),
+        "recent_logs": recent_member_logs,
     }
 
 
@@ -631,6 +658,60 @@ def activity_feed_for(guild: Any | None, *, limit: int = 40) -> list[dict[str, A
         }
         for entry in entries[:limit]
     ]
+
+
+def filtered_activity_feed_for(guild: Any | None, *, limit: int = 120, entry_type: str = "", query: str = "") -> list[dict[str, Any]]:
+    entries = activity_feed_for(guild, limit=limit)
+    if entry_type:
+        entries = [entry for entry in entries if entry["type"] == entry_type]
+    if query:
+        lowered = query.lower()
+        entries = [
+            entry
+            for entry in entries
+            if lowered in entry["title"].lower() or lowered in entry["detail"].lower()
+        ]
+    return entries
+
+
+def staff_rows_for(guild: Any | None) -> list[dict[str, Any]]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return []
+    store = bot.get_ticket_store(guild.id)
+    channels = store.get("channels", {})
+    points_store = store.get("staff_points", {})
+    active_claims: dict[int, int] = {}
+    archived_claims: dict[int, int] = {}
+    transferred: dict[int, int] = {}
+
+    for ticket in channels.values():
+        helper_id = ticket.get("assigned_helper_id")
+        if helper_id:
+            if ticket.get("status") == "archived":
+                archived_claims[int(helper_id)] = archived_claims.get(int(helper_id), 0) + 1
+            else:
+                active_claims[int(helper_id)] = active_claims.get(int(helper_id), 0) + 1
+        transfer_by = ticket.get("transferred_by")
+        if transfer_by:
+            transferred[int(transfer_by)] = transferred.get(int(transfer_by), 0) + 1
+
+    tracked_ids = set(int(user_id) for user_id in points_store.keys()) | set(active_claims.keys()) | set(archived_claims.keys()) | set(transferred.keys())
+    rows: list[dict[str, Any]] = []
+    for user_id in tracked_ids:
+        member = guild.get_member(user_id)
+        rows.append(
+            {
+                "member_id": user_id,
+                "member_name": member.display_name if member else str(user_id),
+                "points": int(points_store.get(str(user_id), 0)),
+                "active_claims": active_claims.get(user_id, 0),
+                "resolved_tickets": archived_claims.get(user_id, 0),
+                "transfers": transferred.get(user_id, 0),
+            }
+        )
+    rows.sort(key=lambda item: (item["points"], item["resolved_tickets"], item["active_claims"]), reverse=True)
+    return rows
 
 
 def run_quick_action(bot: Any, guild: Any, action: str) -> tuple[str, str]:
@@ -942,6 +1023,8 @@ def tickets_page():
         return redirect(url_for("tickets_page", guild_id=guild.id))
 
     store = bot.get_ticket_store(guild.id).get("channels", {})
+    ticket_filter = request.args.get("filter", "").strip().lower()
+    search_query = request.args.get("q", "").strip().lower()
     open_tickets: list[dict[str, Any]] = []
     archived_tickets: list[dict[str, Any]] = []
     for channel_id, ticket in store.items():
@@ -958,7 +1041,24 @@ def tickets_page():
             "destination": ticket.get("destination", "-"),
             "opened_at": iso_to_local(ticket.get("created_at")),
             "claimed_at": iso_to_local(ticket.get("claimed_at")),
+            "last_activity_at": iso_to_local(ticket.get("last_activity_at")),
+            "transfer_reason": ticket.get("transfer_reason") or "-",
+            "transfer_summary": ticket.get("transfer_summary") or "-",
+            "claimed_messages": int(ticket.get("claimed_messages", 0)),
         }
+        haystack = " ".join(
+            [
+                row["channel_name"],
+                row["owner_name"],
+                row["helper_name"],
+                row["ticket_type"],
+                row["destination"],
+            ]
+        ).lower()
+        if ticket_filter and row["ticket_type"].lower() != ticket_filter and row["destination"].lower() != ticket_filter:
+            continue
+        if search_query and search_query not in haystack:
+            continue
         if ticket.get("status") == "archived":
             archived_tickets.append(row)
         else:
@@ -982,6 +1082,8 @@ def tickets_page():
         archived_tickets=archived_tickets,
         staff_points=staff_points[:15],
         ticket_stats=ticket_stats_for(guild),
+        ticket_filter=ticket_filter,
+        search_query=search_query,
         **panel_context("tickets"),
     )
 
@@ -1446,14 +1548,14 @@ def levels_page():
 def logs_page():
     guild = selected_guild()
     selected_type = request.args.get("type", "").strip()
-    entries = activity_feed_for(guild, limit=120)
-    if selected_type:
-        entries = [entry for entry in entries if entry["type"] == selected_type]
+    query = request.args.get("q", "").strip()
+    entries = filtered_activity_feed_for(guild, limit=160, entry_type=selected_type, query=query)
     return render_template(
         "logs_panel.html",
         entries=entries,
         log_types=logs_types_for(guild),
         selected_type=selected_type,
+        query=query,
         **panel_context("logs"),
     )
 
@@ -1544,6 +1646,18 @@ def members_page():
         selected_profile=selected_profile,
         top_members=top_members,
         **panel_context("members"),
+    )
+
+
+@app.route("/staff")
+@login_required
+def staff_page():
+    guild = selected_guild()
+    rows = staff_rows_for(guild)
+    return render_template(
+        "staff_panel.html",
+        staff_rows=rows,
+        **panel_context("staff"),
     )
 
 

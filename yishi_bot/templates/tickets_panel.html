@@ -9,6 +9,35 @@
   <article class="stat-card"><span>Points staff</span><strong>{{ ticket_stats.staff_points }}</strong></article>
 </section>
 
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Recherche tickets</h2>
+      <p>Filtre rapide par type, destination, owner ou helper.</p>
+    </div>
+  </div>
+  <form method="get" class="form-grid form-grid-double">
+    {% if selected_guild %}<input type="hidden" name="guild_id" value="{{ selected_guild.id }}">{% endif %}
+    <label>
+      <span>Filtre</span>
+      <select name="filter">
+        <option value="">Tous</option>
+        <option value="helper" {% if ticket_filter == 'helper' %}selected{% endif %}>Destination helper</option>
+        <option value="purchase" {% if ticket_filter == 'purchase' %}selected{% endif %}>Destination purchase</option>
+        <option value="staff" {% if ticket_filter == 'staff' %}selected{% endif %}>Destination staff</option>
+        <option value="buy" {% if ticket_filter == 'buy' %}selected{% endif %}>Type buy</option>
+        <option value="help" {% if ticket_filter == 'help' %}selected{% endif %}>Type help</option>
+        <option value="renseignement" {% if ticket_filter == 'renseignement' %}selected{% endif %}>Type renseignement</option>
+      </select>
+    </label>
+    <label>
+      <span>Recherche texte</span>
+      <input type="text" name="q" value="{{ search_query }}" placeholder="owner, helper, salon...">
+    </label>
+    <button type="submit" class="button">Appliquer</button>
+  </form>
+</section>
+
 <section class="panel-section two-grid">
   <article>
     <div class="section-head">
@@ -27,7 +56,7 @@
             <th>Helper</th>
             <th>Type</th>
             <th>Destination</th>
-            <th>Ouvert</th>
+            <th>Activité</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -39,13 +68,22 @@
             <td>{{ ticket.helper_name }}</td>
             <td>{{ ticket.ticket_type }}</td>
             <td>{{ ticket.destination }}</td>
-            <td>{{ ticket.opened_at }}</td>
+            <td>{{ ticket.last_activity_at }}</td>
             <td>
               <form method="post">
                 <input type="hidden" name="action" value="archive">
                 <input type="hidden" name="channel_id" value="{{ ticket.channel_id }}">
                 <button type="submit" class="button danger">Archiver</button>
               </form>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="7">
+              <strong>Ouvert :</strong> {{ ticket.opened_at }} |
+              <strong>Claim :</strong> {{ ticket.claimed_at }} |
+              <strong>Messages claim :</strong> {{ ticket.claimed_messages }}<br>
+              <strong>Transfert :</strong> {{ ticket.transfer_reason }}<br>
+              <strong>Résumé :</strong> {{ ticket.transfer_summary }}
             </td>
           </tr>
           {% endfor %}
@@ -90,28 +128,30 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr>
-          <th>Salon</th>
-          <th>Owner</th>
-          <th>Helper</th>
-          <th>Type</th>
-          <th>Claim</th>
-          <th>Action</th>
-        </tr>
+          <tr>
+            <th>Salon</th>
+            <th>Owner</th>
+            <th>Helper</th>
+            <th>Type</th>
+            <th>Claim</th>
+            <th>Dernière activité</th>
+            <th>Action</th>
+          </tr>
       </thead>
       <tbody>
         {% for ticket in archived_tickets %}
         <tr>
           <td>{{ ticket.channel_name }}</td>
           <td>{{ ticket.owner_name }}</td>
-          <td>{{ ticket.helper_name }}</td>
-          <td>{{ ticket.ticket_type }}</td>
-          <td>{{ ticket.claimed_at }}</td>
-          <td>
-            <form method="post">
-              <input type="hidden" name="action" value="reopen">
-              <input type="hidden" name="channel_id" value="{{ ticket.channel_id }}">
-              <button type="submit" class="button secondary">Reouvrir</button>
+            <td>{{ ticket.helper_name }}</td>
+            <td>{{ ticket.ticket_type }}</td>
+            <td>{{ ticket.claimed_at }}</td>
+            <td>{{ ticket.last_activity_at }}</td>
+            <td>
+              <form method="post">
+                <input type="hidden" name="action" value="reopen">
+                <input type="hidden" name="channel_id" value="{{ ticket.channel_id }}">
+                <button type="submit" class="button secondary">Reouvrir</button>
             </form>
           </td>
         </tr>

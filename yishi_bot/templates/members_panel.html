@@ -223,5 +223,96 @@
     </div>
   </article>
 </section>
+
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Historique tickets archivés</h2>
+        <p>Derniers tickets fermés ou archivés liés à ce membre.</p>
+      </div>
+    </div>
+    {% if selected_profile.tickets_archived %}
+    <div class="list-stack">
+      {% for ticket in selected_profile.tickets_archived %}
+      <div class="list-card">
+        <div class="mini-meta">
+          <span>#{{ ticket.number }}</span>
+          <span>{{ ticket.type }}</span>
+          <span>{{ ticket.destination }}</span>
+          <span>{{ ticket.status }}</span>
+        </div>
+        <p><strong>Créé :</strong> {{ ticket.created_at or '-' }}</p>
+        <p><strong>Claim :</strong> {{ ticket.claimed_at or '-' }}</p>
+        <p><strong>Raison transfert :</strong> {{ ticket.transfer_reason or '-' }}</p>
+        <p><strong>Résumé :</strong> {{ ticket.transfer_summary or '-' }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun ticket archivé trouvé pour ce membre.</div>
+    {% endif %}
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Giveaways du membre</h2>
+        <p>Participations, gains et statut staff liés à ce profil.</p>
+      </div>
+    </div>
+    <div class="list-stack">
+      <div class="list-card">
+        <div class="mini-meta"><span>Participations</span><span>{{ selected_profile.giveaways.participations|length }}</span></div>
+        <p>
+          {% if selected_profile.giveaways.participations %}
+            {{ selected_profile.giveaways.participations|map(attribute='prize')|join(', ') }}
+          {% else %}
+            Aucune participation enregistrée.
+          {% endif %}
+        </p>
+      </div>
+      <div class="list-card">
+        <div class="mini-meta"><span>Gains</span><span>{{ selected_profile.giveaways.wins|length }}</span></div>
+        <p>
+          {% if selected_profile.giveaways.wins %}
+            {{ selected_profile.giveaways.wins|map(attribute='prize')|join(', ') }}
+          {% else %}
+            Aucun gain enregistré.
+          {% endif %}
+        </p>
+      </div>
+      <div class="list-card">
+        <div class="mini-meta"><span>Points staff</span><span>{{ selected_profile.staff_points }}</span></div>
+        <p>Visible surtout si ce membre intervient sur le support ou les tickets.</p>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Logs récents liés au membre</h2>
+      <p>Raccourci owner pour retrouver rapidement son activité récente.</p>
+    </div>
+  </div>
+  {% if selected_profile.recent_logs %}
+  <div class="list-stack">
+    {% for entry in selected_profile.recent_logs %}
+    <div class="list-card">
+      <div class="mini-meta">
+        <span>{{ entry.type }}</span>
+        <span>{{ entry.when_text }}</span>
+      </div>
+      <h3>{{ entry.title }}</h3>
+      <p>{{ entry.detail }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">Aucun log récent trouvé pour ce membre.</div>
+  {% endif %}
+</section>
 {% endif %}
 {% endblock %}
