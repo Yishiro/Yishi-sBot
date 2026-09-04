@@ -1043,7 +1043,7 @@ def run_quick_action(bot: Any, guild: Any, action: str) -> tuple[str, str]:
             channel = guild.get_channel(bot.get_daily_level_channel_id(guild.id))
             if channel is None:
                 raise RuntimeError("Salon progression introuvable.")
-            await channel.send(bot.build_daily_level_message(guild.id))
+            await bot.replace_bot_messages(channel, content=bot.build_daily_level_message(guild.id))
 
         ok, message = run_bot_coroutine(_send_level_now(), timeout=60)
         return ("success" if ok else "error", "Message progression envoye." if ok else f"Echec: {message}")
@@ -1052,7 +1052,7 @@ def run_quick_action(bot: Any, guild: Any, action: str) -> tuple[str, str]:
             channel = guild.get_channel(bot.get_daily_sales_rules_channel_id(guild.id))
             if channel is None:
                 raise RuntimeError("Salon ventes introuvable.")
-            await channel.send(embed=bot.build_sales_rules_embed())
+            await bot.replace_bot_messages(channel, embed=bot.build_sales_rules_embed())
 
         ok, message = run_bot_coroutine(_send_sales_now(), timeout=60)
         return ("success" if ok else "error", "Reglement ventes envoye." if ok else f"Echec: {message}")

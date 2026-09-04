@@ -2693,7 +2693,10 @@ class YishiBot(commands.Bot):
 
         embed = self.build_promo_embed(promo)
         content = "-# Interested? Open a ticket to claim this weekly offer."
-        message = await channel.send(content=content, embed=embed)
+        if automatic:
+            message = await self.replace_bot_messages(channel, content=content, embed=embed)
+        else:
+            message = await channel.send(content=content, embed=embed)
 
         promo["last_posted_at"] = self.iso_now()
         max_queue = max(
@@ -2855,6 +2858,23 @@ class YishiBot(commands.Bot):
     def build_daily_level_message(self, guild_id: int) -> str:
         return self.get_daily_level_message_text(guild_id)
 
+    async def replace_bot_messages(
+        self,
+        channel: discord.TextChannel,
+        *,
+        content: str | None = None,
+        embed: discord.Embed | None = None,
+    ) -> discord.Message:
+        """Keep dedicated automatic-post channels clean without deleting member content."""
+        bot_user_id = self.user.id if self.user is not None else None
+        if bot_user_id is not None:
+            async for message in channel.history(limit=None, oldest_first=False):
+                if message.author.id != bot_user_id:
+                    continue
+                with contextlib.suppress(discord.HTTPException):
+                    await message.delete()
+        return await channel.send(content=content, embed=embed)
+
     async def process_daily_scheduled_posts(self) -> None:
         now_paris = self.utcnow().astimezone(self.paris_tz)
         if now_paris.hour != 12 or now_paris.minute != 0:
@@ -2874,7 +2894,10 @@ class YishiBot(commands.Bot):
                     isinstance(level_channel, discord.TextChannel)
                     and daily_posts.get(level_key) != day_key
                 ):
-                    await level_channel.send(self.build_daily_level_message(guild.id))
+                    await self.replace_bot_messages(
+                        level_channel,
+                        content=self.build_daily_level_message(guild.id),
+                    )
                     daily_posts[level_key] = day_key
                     changed = True
 
@@ -2885,7 +2908,10 @@ class YishiBot(commands.Bot):
                     isinstance(sales_channel, discord.TextChannel)
                     and daily_posts.get(sales_key) != day_key
                 ):
-                    await sales_channel.send(embed=self.build_sales_rules_embed())
+                    await self.replace_bot_messages(
+                        sales_channel,
+                        embed=self.build_sales_rules_embed(),
+                    )
                     daily_posts[sales_key] = day_key
                     changed = True
 
