@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}Yishi Owner Panel{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='panel.css') }}">
 </head>
@@ -37,6 +38,7 @@
         <a class="{% if active_page == 'tickets' %}active{% endif %}" href="{{ url_for('tickets_page', guild_id=selected_guild.id if selected_guild else None) }}">Tickets</a>
         <a class="{% if active_page == 'staff' %}active{% endif %}" href="{{ url_for('staff_page', guild_id=selected_guild.id if selected_guild else None) }}">Staff</a>
         <a class="{% if active_page == 'sales' %}active{% endif %}" href="{{ url_for('sales_page', guild_id=selected_guild.id if selected_guild else None) }}">Ventes</a>
+        <a class="{% if active_page == 'shop' %}active{% endif %}" href="{{ url_for('shop_page', guild_id=selected_guild.id if selected_guild else None) }}">Shop CRM</a>
         <a class="{% if active_page == 'giveaways' %}active{% endif %}" href="{{ url_for('giveaways_page', guild_id=selected_guild.id if selected_guild else None) }}">Giveaways</a>
         <a class="{% if active_page == 'gacha' %}active{% endif %}" href="{{ url_for('gacha_page', guild_id=selected_guild.id if selected_guild else None) }}">Gacha</a>
         <a class="{% if active_page == 'invites' %}active{% endif %}" href="{{ url_for('invites_page', guild_id=selected_guild.id if selected_guild else None) }}">Invitations & free</a>
@@ -80,5 +82,14 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script>
+    document.querySelectorAll('form[method="post"]').forEach((form) => {
+      const token = document.createElement('input');
+      token.type = 'hidden';
+      token.name = 'csrf_token';
+      token.value = document.querySelector('meta[name="csrf-token"]').content;
+      form.appendChild(token);
+    });
+  </script>
 </body>
 </html>

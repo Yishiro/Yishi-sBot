@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
+import secrets
 from datetime import datetime, timezone
 from functools import wraps
 from threading import Thread
@@ -10,7 +12,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
-from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, redirect, render_template, request, session, url_for
 
 from yishi_bot.constants import FREE_INVITE_REQUIREMENT, XP_GRADE_LEVELS
 from yishi_bot.helpers import parse_duration
@@ -19,7 +21,14 @@ from yishi_bot.views import GiveawayView
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = os.environ.get("PANEL_SECRET_KEY") or os.environ.get("DISCORD_TOKEN") or "yishi-panel-dev-secret"
+# Never use the Discord token to sign browser sessions. A missing panel secret
+# invalidates sessions at restart instead of silently weakening authentication.
+app.secret_key = os.environ.get("PANEL_SECRET_KEY") or secrets.token_bytes(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=True,
+)
 
 _bot = None
 try:
@@ -148,6 +157,14 @@ def is_authenticated() -> bool:
     return session.get("panel_authenticated") is True
 
 
+def csrf_token() -> str:
+    token = session.get("panel_csrf_token")
+    if not isinstance(token, str) or not token:
+        token = secrets.token_urlsafe(32)
+        session["panel_csrf_token"] = token
+    return token
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -156,6 +173,26 @@ def login_required(view):
         return view(*args, **kwargs)
 
     return wrapped
+
+
+@app.before_request
+def protect_panel_forms() -> None:
+    """Reject cross-site form submissions for authenticated panel actions."""
+    if request.method != "POST" or request.endpoint == "login":
+        return
+    expected = session.get("panel_csrf_token", "")
+    submitted = request.form.get("csrf_token", "")
+    if not isinstance(expected, str) or not hmac.compare_digest(expected, submitted):
+        abort(400, "Session invalide. Recharge la page puis reessaie.")
+
+
+@app.after_request
+def apply_security_headers(response: Response) -> Response:
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'; base-uri 'self'; frame-ancestors 'none'"
+    return response
 
 
 def parse_int_or_none(value: str) -> int | None:
@@ -484,6 +521,134 @@ def invite_stats_for(guild: Any | None) -> dict[str, int]:
     }
 
 
+def ensure_sale_store_extras(guild: Any | None) -> dict[str, Any] | None:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return None
+    store = bot.get_sale_store(guild.id)
+    changed = False
+    for key, default in (("clients", {}), ("orders", [])):
+        if key not in store or not isinstance(store[key], type(default)):
+            store[key] = default
+            changed = True
+    if changed:
+        bot.save_sales()
+    return store
+
+
+def ensure_giveaway_store_extras(guild: Any | None) -> dict[str, Any] | None:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return None
+    store = bot.get_giveaway_store(guild.id)
+    changed = False
+    if "templates" not in store or not isinstance(store["templates"], list):
+        store["templates"] = []
+        changed = True
+    if changed:
+        bot.save_giveaways()
+    return store
+
+
+def giveaway_template_rows_for(guild: Any | None) -> list[dict[str, Any]]:
+    store = ensure_giveaway_store_extras(guild)
+    if store is None:
+        return []
+    return sorted(store.get("templates", []), key=lambda item: int(item.get("id", 0)), reverse=True)
+
+
+def gacha_reward_stats_for() -> list[dict[str, Any]]:
+    bot = get_bot()
+    if bot is None:
+        return []
+    buckets: dict[tuple[str, str], int] = {}
+    for item in bot.gacha_data.get("history", []):
+        key = (item.get("rarity", "-"), item.get("reward", "-"))
+        buckets[key] = buckets.get(key, 0) + 1
+    rows = [
+        {"rarity": rarity, "reward": reward, "count": count}
+        for (rarity, reward), count in buckets.items()
+    ]
+    rows.sort(key=lambda item: (item["count"], item["rarity"], item["reward"]), reverse=True)
+    return rows[:20]
+
+
+def gacha_recent_wins() -> list[dict[str, Any]]:
+    bot = get_bot()
+    if bot is None:
+        return []
+    rows = list(reversed(bot.gacha_data.get("history", [])[-20:]))
+    return rows
+
+
+def sales_crm_stats_for(guild: Any | None) -> dict[str, Any]:
+    store = ensure_sale_store_extras(guild)
+    if store is None:
+        return {"clients": 0, "orders": 0, "paid": 0, "pending": 0, "delivered": 0, "revenue": 0.0}
+    revenue = 0.0
+    for order in store["orders"]:
+        try:
+            revenue += float(str(order.get("amount", "0")).replace(",", "."))
+        except ValueError:
+            continue
+    return {
+        "clients": len(store["clients"]),
+        "orders": len(store["orders"]),
+        "paid": sum(1 for order in store["orders"] if order.get("status") == "paid"),
+        "pending": sum(1 for order in store["orders"] if order.get("status") == "pending"),
+        "delivered": sum(1 for order in store["orders"] if order.get("status") == "delivered"),
+        "revenue": round(revenue, 2),
+    }
+
+
+def customer_rows_for(guild: Any | None) -> list[dict[str, Any]]:
+    bot = get_bot()
+    store = ensure_sale_store_extras(guild)
+    if bot is None or guild is None or store is None:
+        return []
+    rows = []
+    for member_id, data in store["clients"].items():
+        member = guild.get_member(int(member_id))
+        notes = data.get("notes", [])
+        last_note = notes[-1].get("content", "") if notes else ""
+        rows.append(
+            {
+                "member_id": int(member_id),
+                "member_name": member.display_name if member else member_id,
+                "tags": data.get("tags", ""),
+                "notes_count": len(notes),
+                "last_note": last_note,
+                "created_at": iso_to_local(data.get("created_at")),
+            }
+        )
+    rows.sort(key=lambda item: item["member_name"].lower())
+    return rows
+
+
+def order_rows_for(guild: Any | None) -> list[dict[str, Any]]:
+    bot = get_bot()
+    store = ensure_sale_store_extras(guild)
+    if bot is None or guild is None or store is None:
+        return []
+    rows = []
+    for order in store["orders"]:
+        member = guild.get_member(int(order.get("member_id", 0))) if order.get("member_id") else None
+        rows.append(
+            {
+                "order_id": int(order.get("order_id", 0)),
+                "member_id": int(order.get("member_id", 0)),
+                "member_name": member.display_name if member else str(order.get("member_id", "-")),
+                "product": order.get("product", "-"),
+                "amount": order.get("amount", "-"),
+                "status": order.get("status", "-"),
+                "note": order.get("note", ""),
+                "created_at": iso_to_local(order.get("created_at")),
+            }
+        )
+    rows.sort(key=lambda item: item["order_id"], reverse=True)
+    return rows
+
+
 def logs_types_for(guild: Any | None) -> list[str]:
     entries = activity_feed_for(guild, limit=200)
     return sorted({entry["type"] for entry in entries})
@@ -534,6 +699,9 @@ def member_hub_data(guild: Any | None, member_id: int | None) -> dict[str, Any] 
         for entry in activity_feed_for(guild, limit=150)
         if str(member.id) in entry["detail"] or member.display_name.lower() in entry["detail"].lower()
     ][:12]
+    sale_store = ensure_sale_store_extras(guild) or {"clients": {}, "orders": []}
+    client_record = sale_store["clients"].get(str(member.id), {})
+    client_orders = [order for order in sale_store["orders"] if int(order.get("member_id", 0)) == member.id]
 
     return {
         "member": member,
@@ -567,6 +735,10 @@ def member_hub_data(guild: Any | None, member_id: int | None) -> dict[str, Any] 
         "giveaway_blacklist": blacklist,
         "staff_points": bot.get_staff_point_total(guild.id, member.id),
         "recent_logs": recent_member_logs,
+        "shop": {
+            "client": client_record,
+            "orders": list(reversed(client_orders[-10:])),
+        },
     }
 
 
@@ -760,6 +932,7 @@ def panel_context(active_page: str) -> dict[str, Any]:
         "panel_enabled": panel_enabled(),
         "panel_started_at": _panel_started_at,
         "now_paris": now_paris,
+        "csrf_token": csrf_token(),
     }
 
 
@@ -795,8 +968,10 @@ def login():
         else:
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
-            if username == panel_username() and password == panel_password():
+            if hmac.compare_digest(username, panel_username()) and hmac.compare_digest(password, panel_password()):
+                session.clear()
                 session["panel_authenticated"] = True
+                csrf_token()
                 return redirect(url_for("dashboard"))
             flash("Identifiants invalides.", "error")
 
@@ -920,7 +1095,12 @@ def promotions():
     guild = selected_guild()
     if bot is None or guild is None:
         flash("Bot ou serveur indisponible.", "error")
-        return render_template("promotions.html", promotions=[], **panel_context("promotions"))
+        return render_template(
+            "promotions.html",
+            promotions=[],
+            promo_stats={"total": 0, "active": 0, "inactive": 0},
+            **panel_context("promotions"),
+        )
 
     store = bot.get_promo_store(guild.id)
     if request.method == "POST":
@@ -1003,7 +1183,14 @@ def tickets_page():
     guild = selected_guild()
     if bot is None or guild is None:
         flash("Bot ou serveur indisponible.", "error")
-        return render_template("tickets_panel.html", open_tickets=[], archived_tickets=[], **panel_context("tickets"))
+        return render_template(
+            "tickets_panel.html",
+            open_tickets=[],
+            archived_tickets=[],
+            ticket_stats={"open": 0, "archived": 0, "helpers": 0, "staff_points": 0},
+            staff_rows=[],
+            **panel_context("tickets"),
+        )
 
     if request.method == "POST":
         action = request.form.get("action", "")
@@ -1095,8 +1282,17 @@ def sales_page():
     guild = selected_guild()
     if bot is None or guild is None:
         flash("Bot ou serveur indisponible.", "error")
-        return render_template("sales_panel.html", pending_sales=[], active_sales=[], reserved_sales=[], **panel_context("sales"))
+        return render_template(
+            "sales_panel.html",
+            pending_sales=[],
+            active_sales=[],
+            reserved_sales=[],
+            sales_stats={"pending": 0, "active": 0, "reserved": 0, "channels": 0},
+            crm_stats={"clients": 0, "orders": 0, "paid": 0, "pending": 0, "delivered": 0, "revenue": 0.0},
+            **panel_context("sales"),
+        )
 
+    ensure_sale_store_extras(guild)
     if request.method == "POST":
         action = request.form.get("action", "")
         target_id = parse_int_or_none(request.form.get("target_id", ""))
@@ -1156,6 +1352,7 @@ def sales_page():
         active_sales=active_sales,
         reserved_sales=reserved_sales,
         sales_stats=sales_stats_for(guild),
+        crm_stats=sales_crm_stats_for(guild),
         **panel_context("sales"),
     )
 
@@ -1167,8 +1364,17 @@ def giveaways_page():
     guild = selected_guild()
     if bot is None or guild is None:
         flash("Bot ou serveur indisponible.", "error")
-        return render_template("giveaways_panel.html", active_giveaways=[], ended_giveaways=[], blacklist_entries=[], **panel_context("giveaways"))
+        return render_template(
+            "giveaways_panel.html",
+            active_giveaways=[],
+            ended_giveaways=[],
+            blacklist_entries=[],
+            giveaway_stats={"active": 0, "ended": 0, "blacklist": 0, "forced": 0},
+            giveaway_templates=[],
+            **panel_context("giveaways"),
+        )
 
+    giveaway_store = ensure_giveaway_store_extras(guild) or {"templates": []}
     entries = bot.get_giveaway_entries(guild.id)
     if request.method == "POST":
         action = request.form.get("action", "")
@@ -1219,6 +1425,80 @@ def giveaways_page():
 
                 ok, message = run_bot_coroutine(_create_giveaway(), timeout=90)
                 flash("Giveaway cree." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "template_add":
+            template_name = request.form.get("template_name", "").strip()
+            prize = request.form.get("template_prize", "").strip()
+            duration = request.form.get("template_duration", "").strip()
+            winners_count = parse_int_or_none(request.form.get("template_winners_count", "")) or 1
+            if not template_name or not prize or not duration or not 1 <= winners_count <= 20:
+                flash("Template giveaway invalide.", "error")
+            else:
+                template_id = max((int(item.get("id", 0)) for item in giveaway_store["templates"]), default=0) + 1
+                giveaway_store["templates"].append(
+                    {
+                        "id": template_id,
+                        "name": template_name,
+                        "prize": prize,
+                        "duration": duration,
+                        "winners_count": winners_count,
+                    }
+                )
+                bot.save_giveaways()
+                flash("Template giveaway ajoute.", "success")
+        elif action == "template_delete":
+            template_id = parse_int_or_none(request.form.get("template_id", ""))
+            if template_id is None:
+                flash("Template invalide.", "error")
+            else:
+                giveaway_store["templates"] = [item for item in giveaway_store["templates"] if int(item.get("id", 0)) != template_id]
+                bot.save_giveaways()
+                flash("Template giveaway supprime.", "success")
+        elif action == "create_from_template":
+            template_id = parse_int_or_none(request.form.get("template_id", ""))
+            channel_id = parse_int_or_none(request.form.get("channel_id", ""))
+            template = next((item for item in giveaway_store["templates"] if int(item.get("id", 0)) == template_id), None)
+            if template is None or channel_id is None:
+                flash("Template ou salon invalide.", "error")
+            else:
+                async def _create_from_template() -> None:
+                    channel = guild.get_channel(channel_id)
+                    if not isinstance(channel, discord.TextChannel):
+                        raise RuntimeError("Salon giveaway introuvable.")
+                    seconds = parse_duration(template["duration"])
+                    if seconds is None:
+                        raise RuntimeError("Duree template invalide.")
+                    end_at = int(discord.utils.utcnow().timestamp()) + seconds
+                    embed = discord.Embed(
+                        title="🎉 Giveaway",
+                        description=(
+                            f"Prix : **{template['prize']}**\n"
+                            f"Gagnant(s) : **{template['winners_count']}**\n"
+                            f"Fin : <t:{end_at}:R>\n"
+                            "Chances bonus : **roles invitations + Server Booster**\n\n"
+                            "Clique sur Participer pour rejoindre le giveaway."
+                        ),
+                        color=discord.Color.gold(),
+                    )
+                    message = await channel.send(embed=embed, view=GiveawayView(bot))
+                    store = bot.get_giveaway_entries(guild.id)
+                    store[str(message.id)] = {
+                        "message_id": message.id,
+                        "channel_id": channel.id,
+                        "prize": template["prize"],
+                        "winners_count": int(template["winners_count"]),
+                        "participants": [],
+                        "winners": [],
+                        "forced_winner_id": None,
+                        "end_at": end_at,
+                        "status": "active",
+                        "created_by": guild.owner_id,
+                        "template_name": template["name"],
+                    }
+                    bot.save_giveaways()
+                    bot.schedule_giveaway_end(guild.id, message.id, end_at)
+
+                ok, message = run_bot_coroutine(_create_from_template(), timeout=90)
+                flash("Giveaway créé depuis template." if ok else f"Echec: {message}", "success" if ok else "error")
         elif action in {"end", "reroll"}:
             message_id = parse_int_or_none(request.form.get("message_id", ""))
             if message_id is None:
@@ -1314,6 +1594,7 @@ def giveaways_page():
         ended_giveaways=ended_giveaways,
         blacklist_entries=blacklist_entries,
         giveaway_stats=giveaway_stats_for(guild),
+        giveaway_templates=giveaway_template_rows_for(guild),
         **panel_context("giveaways"),
     )
 
@@ -1325,7 +1606,18 @@ def gacha_page():
     guild = selected_guild()
     if bot is None or guild is None:
         flash("Bot ou serveur indisponible.", "error")
-        return render_template("gacha_panel.html", stocks=[], selected_member=None, selected_inventory=None, selected_notes=[], selected_history=[], **panel_context("gacha"))
+        return render_template(
+            "gacha_panel.html",
+            stocks=[],
+            selected_member=None,
+            selected_inventory=None,
+            selected_notes=[],
+            selected_history=[],
+            gacha_stats={"members": 0, "basic": 0, "advanced": 0, "deluxe": 0, "history": 0, "notes": 0},
+            reward_stats=[],
+            recent_wins=[],
+            **panel_context("gacha"),
+        )
 
     if request.method == "POST":
         action = request.form.get("action", "")
@@ -1408,7 +1700,86 @@ def gacha_page():
         selected_notes=selected_notes,
         selected_history=selected_history,
         gacha_stats=gacha_stats_for(guild),
+        reward_stats=gacha_reward_stats_for(),
+        recent_wins=gacha_recent_wins(),
         **panel_context("gacha"),
+    )
+
+
+@app.route("/shop", methods=["GET", "POST"])
+@login_required
+def shop_page():
+    bot = get_bot()
+    guild = selected_guild()
+    if bot is None or guild is None:
+        flash("Bot ou serveur indisponible.", "error")
+        return render_template("shop_panel.html", clients=[], orders=[], crm_stats={}, **panel_context("shop"))
+
+    store = ensure_sale_store_extras(guild) or {"clients": {}, "orders": []}
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        member_id = parse_int_or_none(request.form.get("member_id", ""))
+        if action == "client_add":
+            tags = request.form.get("tags", "").strip()
+            note = request.form.get("note", "").strip()
+            if member_id is None:
+                flash("ID membre invalide.", "error")
+            else:
+                client = store["clients"].setdefault(
+                    str(member_id),
+                    {"created_at": datetime.now(tz=_paris_tz).isoformat(), "tags": "", "notes": []},
+                )
+                client["tags"] = tags
+                if note:
+                    client.setdefault("notes", []).append(
+                        {
+                            "author": "Owner Panel",
+                            "content": note,
+                            "timestamp": datetime.now(tz=_paris_tz).isoformat(),
+                        }
+                    )
+                bot.save_sales()
+                flash("Client CRM mis à jour.", "success")
+        elif action == "order_add":
+            product = request.form.get("product", "").strip()
+            amount = request.form.get("amount", "").strip()
+            status = request.form.get("status", "").strip() or "pending"
+            note = request.form.get("note", "").strip()
+            if member_id is None or not product or not amount or status not in {"pending", "paid", "delivered", "cancelled"}:
+                flash("Commande invalide.", "error")
+            else:
+                next_id = max((int(item.get("order_id", 0)) for item in store["orders"]), default=0) + 1
+                store["orders"].append(
+                    {
+                        "order_id": next_id,
+                        "member_id": member_id,
+                        "product": product,
+                        "amount": amount,
+                        "status": status,
+                        "note": note,
+                        "created_at": datetime.now(tz=_paris_tz).isoformat(),
+                    }
+                )
+                bot.save_sales()
+                flash("Commande ajoutée.", "success")
+        elif action == "order_status":
+            order_id = parse_int_or_none(request.form.get("order_id", ""))
+            status = request.form.get("status", "").strip()
+            order = next((item for item in store["orders"] if int(item.get("order_id", 0)) == (order_id or -1)), None)
+            if order is None or status not in {"pending", "paid", "delivered", "cancelled"}:
+                flash("Commande introuvable.", "error")
+            else:
+                order["status"] = status
+                bot.save_sales()
+                flash("Statut commande mis à jour.", "success")
+        return redirect(url_for("shop_page", guild_id=guild.id))
+
+    return render_template(
+        "shop_panel.html",
+        clients=customer_rows_for(guild),
+        orders=order_rows_for(guild),
+        crm_stats=sales_crm_stats_for(guild),
+        **panel_context("shop"),
     )
 
 
@@ -1425,6 +1796,7 @@ def invites_page():
             free_role_name="-",
             weekly_requirement=2,
             weekly_reset_label="-",
+            invite_stats={"tracked": 0, "weekly_ready": 0, "from_now_total": 0},
             **panel_context("invites"),
         )
 
@@ -1496,6 +1868,7 @@ def levels_page():
             leaderboard=[],
             selected_profile=None,
             grade_rules=LEVEL_FEATURE_RULES,
+            level_stats={"tracked": 0, "top_level": 0, "top_xp": 0},
             **panel_context("levels"),
         )
 
@@ -1689,7 +2062,7 @@ def export_dataset(dataset: str):
 
 def run_web_server() -> None:
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, use_reloader=False)
+    app.run(host=os.environ.get("PANEL_HOST", "127.0.0.1"), port=port, use_reloader=False)
 
 
 def keep_alive(bot: Any | None = None) -> None:

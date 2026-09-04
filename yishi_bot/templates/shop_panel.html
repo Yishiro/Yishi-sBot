@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Shop CRM - Yishi Panel{% endblock %}
+{% block header %}Shop CRM{% endblock %}
+{% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Clients</span><strong>{{ crm_stats.clients }}</strong></article>
+  <article class="stat-card"><span>Commandes</span><strong>{{ crm_stats.orders }}</strong></article>
+  <article class="stat-card"><span>Payees</span><strong>{{ crm_stats.paid }}</strong></article>
+  <article class="stat-card"><span>En attente</span><strong>{{ crm_stats.pending }}</strong></article>
+  <article class="stat-card"><span>Livrees</span><strong>{{ crm_stats.delivered }}</strong></article>
+  <article class="stat-card"><span>CA estime</span><strong>{{ crm_stats.revenue }}</strong></article>
+</section>
+
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Ajouter ou mettre a jour un client</h2>
+        <p>Tags internes et notes rapides pour le suivi client.</p>
+      </div>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="action" value="client_add">
+      <label>
+        <span>ID membre</span>
+        <input type="text" name="member_id" placeholder="ID Discord">
+      </label>
+      <label>
+        <span>Tags</span>
+        <input type="text" name="tags" placeholder="vip, gros client, promo...">
+      </label>
+      <label>
+        <span>Note</span>
+        <textarea name="note" placeholder="Note interne sur le client"></textarea>
+      </label>
+      <button type="submit" class="button">Enregistrer le client</button>
+    </form>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Ajouter une commande</h2>
+        <p>Suivi manuel des achats sans quitter le panel.</p>
+      </div>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="action" value="order_add">
+      <label>
+        <span>ID membre</span>
+        <input type="text" name="member_id" placeholder="ID Discord">
+      </label>
+      <label>
+        <span>Produit</span>
+        <input type="text" name="product" placeholder="Ex: Deluxe Spin x3">
+      </label>
+      <label>
+        <span>Montant</span>
+        <input type="text" name="amount" placeholder="Ex: 7.50">
+      </label>
+      <label>
+        <span>Statut</span>
+        <select name="status">
+          <option value="pending">pending</option>
+          <option value="paid">paid</option>
+          <option value="delivered">delivered</option>
+          <option value="cancelled">cancelled</option>
+        </select>
+      </label>
+      <label>
+        <span>Note</span>
+        <textarea name="note" placeholder="Detail interne"></textarea>
+      </label>
+      <button type="submit" class="button">Ajouter la commande</button>
+    </form>
+  </article>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Clients CRM</h2>
+      <p>Vue rapide des membres suivis par le shop.</p>
+    </div>
+  </div>
+  {% if clients %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Membre</th>
+          <th>Tags</th>
+          <th>Notes</th>
+          <th>Derniere note</th>
+          <th>Cree le</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for client in clients %}
+        <tr>
+          <td>{{ client.member_name }}</td>
+          <td>{{ client.tags or "-" }}</td>
+          <td>{{ client.notes_count }}</td>
+          <td>{{ client.last_note or "-" }}</td>
+          <td>{{ client.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucun client CRM pour le moment.</div>
+  {% endif %}
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Commandes shop</h2>
+      <p>Historique manuel des commandes et mise a jour du statut.</p>
+    </div>
+  </div>
+  {% if orders %}
+  <div class="list-stack">
+    {% for order in orders %}
+    <div class="list-card">
+      <div class="mini-meta">
+        <span>Commande #{{ order.order_id }}</span>
+        <span>{{ order.member_name }}</span>
+        <span>{{ order.created_at }}</span>
+      </div>
+      <h3>{{ order.product }}</h3>
+      <p>Montant: {{ order.amount }} | Statut: {{ order.status }}</p>
+      {% if order.note %}
+      <p>{{ order.note }}</p>
+      {% endif %}
+      <form method="post" class="form-grid" style="margin-top:12px;">
+        <input type="hidden" name="action" value="order_status">
+        <input type="hidden" name="order_id" value="{{ order.order_id }}">
+        <label>
+          <span>Nouveau statut</span>
+          <select name="status">
+            <option value="pending" {% if order.status == "pending" %}selected{% endif %}>pending</option>
+            <option value="paid" {% if order.status == "paid" %}selected{% endif %}>paid</option>
+            <option value="delivered" {% if order.status == "delivered" %}selected{% endif %}>delivered</option>
+            <option value="cancelled" {% if order.status == "cancelled" %}selected{% endif %}>cancelled</option>
+          </select>
+        </label>
+        <button type="submit" class="button secondary">Mettre a jour</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune commande enregistree.</div>
+  {% endif %}
+</section>
+{% endblock %}

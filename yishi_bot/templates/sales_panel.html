@@ -6,6 +6,9 @@
   <article class="stat-card"><span>En attente</span><strong>{{ sales_stats.pending }}</strong></article>
   <article class="stat-card"><span>Actives</span><strong>{{ sales_stats.active }}</strong></article>
   <article class="stat-card"><span>Reservees</span><strong>{{ sales_stats.reserved }}</strong></article>
+  <article class="stat-card"><span>Clients CRM</span><strong>{{ crm_stats.clients }}</strong></article>
+  <article class="stat-card"><span>Commandes</span><strong>{{ crm_stats.orders }}</strong></article>
+  <article class="stat-card"><span>CA estime</span><strong>{{ crm_stats.revenue }}</strong></article>
 </section>
 
 <section class="panel-section">
@@ -24,7 +27,7 @@
         <span>{{ sale.created_at }}</span>
       </div>
       <h3>{{ sale.product }}</h3>
-      <p>{{ sale.category }} • {{ sale.price }} • vendeur {{ sale.seller_name }}</p>
+      <p>{{ sale.category }} - {{ sale.price }} - vendeur {{ sale.seller_name }}</p>
       <div class="form-actions" style="margin-top:12px;">
         <form method="post">
           <input type="hidden" name="action" value="approve">
@@ -98,7 +101,7 @@
   <div class="section-head">
     <div>
       <h2>Ventes reservees</h2>
-      <p>Salons prives acheteur/vendeur deja ouverts.</p>
+      <p>Salons prives acheteur et vendeur deja ouverts.</p>
     </div>
   </div>
   {% if reserved_sales %}

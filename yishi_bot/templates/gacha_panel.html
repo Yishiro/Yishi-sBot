@@ -149,7 +149,7 @@
     <div class="section-head">
       <div>
         <h2>Historique des ajustements</h2>
-        <p>Dernieres attributions/retraits de spins.</p>
+        <p>Dernieres attributions et retraits de spins.</p>
       </div>
     </div>
     {% if selected_history %}
@@ -157,13 +157,74 @@
       {% for item in selected_history %}
       <div class="list-card">
         <div class="mini-meta"><span>{{ item.action }}</span><span>{{ item.spin_type }}</span><span>x{{ item.quantity }}</span></div>
-        <p>{{ item.actor_name }} • total apres: {{ item.total_after }}</p>
+        <p>{{ item.actor_name }} - total apres: {{ item.total_after }}</p>
         <p>{{ item.reason or "Aucune raison" }}</p>
       </div>
       {% endfor %}
     </div>
     {% else %}
     <div class="empty-state">Aucun historique pour ce membre.</div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Top recompenses tombees</h2>
+        <p>Les recompenses les plus souvent gagnees dans l historique global.</p>
+      </div>
+    </div>
+    {% if reward_stats %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Rarete</th>
+            <th>Recompense</th>
+            <th>Occurrences</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in reward_stats %}
+          <tr>
+            <td>{{ row.rarity }}</td>
+            <td>{{ row.reward }}</td>
+            <td>{{ row.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">Aucune donnee gacha globale.</div>
+    {% endif %}
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Derniers gains</h2>
+        <p>Historique recent des spins effectivement joues.</p>
+      </div>
+    </div>
+    {% if recent_wins %}
+    <div class="list-stack">
+      {% for item in recent_wins %}
+      <div class="list-card">
+        <div class="mini-meta">
+          <span>{{ item.display_name }}</span>
+          <span>{{ item.spin_type }}</span>
+          <span>{{ item.rarity }}</span>
+        </div>
+        <h3>{{ item.reward }}</h3>
+        <p>Claim #{{ item.claim_number }} - {{ item.reward_type }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Aucun gain recent.</div>
     {% endif %}
   </article>
 </section>

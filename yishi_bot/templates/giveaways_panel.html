@@ -38,6 +38,67 @@
   </form>
 </section>
 
+<section class="panel-section two-grid">
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Templates giveaways</h2>
+        <p>Prepare des modeles reutilisables puis recree un giveaway en un clic.</p>
+      </div>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="action" value="template_add">
+      <label><span>Nom du template</span><input type="text" name="template_name" placeholder="Ex: Weekly deluxe"></label>
+      <label><span>Lot</span><input type="text" name="template_prize" placeholder="Ex: Kitsune permanent"></label>
+      <label><span>Duree</span><input type="text" name="template_duration" placeholder="10m, 2h, 1d"></label>
+      <label><span>Gagnants</span><input type="number" name="template_winners_count" min="1" max="20" value="1"></label>
+      <button type="submit" class="button">Ajouter le template</button>
+    </form>
+  </article>
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Creer depuis template</h2>
+        <p>Lance un nouveau giveaway a partir d un modele existant.</p>
+      </div>
+    </div>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="action" value="create_from_template">
+      <label>
+        <span>Template</span>
+        <select name="template_id">
+          {% for template in giveaway_templates %}
+          <option value="{{ template.id }}">{{ template.name }} - {{ template.prize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>ID salon</span>
+        <input type="text" name="channel_id" placeholder="ID du salon">
+      </label>
+      <button type="submit" class="button">Creer depuis le template</button>
+    </form>
+    {% if giveaway_templates %}
+    <div class="list-stack" style="margin-top:12px;">
+      {% for template in giveaway_templates %}
+      <div class="list-card">
+        <div class="mini-meta"><span>#{{ template.id }}</span><span>{{ template.duration }}</span><span>{{ template.winners_count }} gagnant(s)</span></div>
+        <h3>{{ template.name }}</h3>
+        <p>{{ template.prize }}</p>
+        <form method="post" style="margin-top:12px;">
+          <input type="hidden" name="action" value="template_delete">
+          <input type="hidden" name="template_id" value="{{ template.id }}">
+          <button type="submit" class="button secondary">Supprimer</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="margin-top:12px;">Aucun template giveaway.</div>
+    {% endif %}
+  </article>
+</section>
+
 <section class="panel-section">
   <div class="section-head">
     <div>
