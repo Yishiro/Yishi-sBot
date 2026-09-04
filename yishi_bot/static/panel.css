@@ -180,6 +180,10 @@ th {
   border-color: rgba(255, 106, 133, 0.32);
 }
 
+.alert-card.warning { border-color: rgba(255, 180, 77, 0.55); }
+.alert-card.danger { border-color: rgba(255, 106, 133, 0.6); }
+.alert-card.info { border-color: rgba(70, 164, 255, 0.5); }
+
 .panel-section {
   margin-top: 20px;
   padding: 22px;

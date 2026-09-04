@@ -31,6 +31,8 @@
 
       <nav class="nav">
         <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard', guild_id=selected_guild.id if selected_guild else None) }}">Dashboard</a>
+        <a class="{% if active_page == 'search' %}active{% endif %}" href="{{ url_for('search_page', guild_id=selected_guild.id if selected_guild else None) }}">Recherche</a>
+        <a class="{% if active_page == 'alerts' %}active{% endif %}" href="{{ url_for('alerts_page', guild_id=selected_guild.id if selected_guild else None) }}">Alertes</a>
         <a class="{% if active_page == 'members' %}active{% endif %}" href="{{ url_for('members_page', guild_id=selected_guild.id if selected_guild else None) }}">Membres</a>
         <a class="{% if active_page == 'config' %}active{% endif %}" href="{{ url_for('config_page', guild_id=selected_guild.id if selected_guild else None) }}">Configuration</a>
         <a class="{% if active_page == 'auto_messages' %}active{% endif %}" href="{{ url_for('auto_messages', guild_id=selected_guild.id if selected_guild else None) }}">Messages auto</a>
@@ -45,6 +47,8 @@
         <a class="{% if active_page == 'promotions' %}active{% endif %}" href="{{ url_for('promotions', guild_id=selected_guild.id if selected_guild else None) }}">Promotions</a>
         <a class="{% if active_page == 'logs' %}active{% endif %}" href="{{ url_for('logs_page', guild_id=selected_guild.id if selected_guild else None) }}">Logs panel</a>
         <a class="{% if active_page == 'security' %}active{% endif %}" href="{{ url_for('security_page', guild_id=selected_guild.id if selected_guild else None) }}">Securite</a>
+        <a class="{% if active_page == 'health' %}active{% endif %}" href="{{ url_for('health_page', guild_id=selected_guild.id if selected_guild else None) }}">Sante systeme</a>
+        <a class="{% if active_page == 'backups' %}active{% endif %}" href="{{ url_for('backups_page', guild_id=selected_guild.id if selected_guild else None) }}">Sauvegardes</a>
       </nav>
 
       {% if active_page != 'login' %}

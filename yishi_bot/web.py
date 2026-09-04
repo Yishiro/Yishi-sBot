@@ -5,6 +5,8 @@ import hmac
 import json
 import os
 import secrets
+import shutil
+import time
 from datetime import datetime, timezone
 from functools import wraps
 from threading import Thread
@@ -16,7 +18,7 @@ from flask import Flask, Response, abort, flash, redirect, render_template, requ
 
 from yishi_bot.constants import FREE_INVITE_REQUIREMENT, XP_GRADE_LEVELS
 from yishi_bot.helpers import parse_duration
-from yishi_bot.storage import DATABASE_URL
+from yishi_bot.storage import DATABASE_URL, PROJECT_ROOT
 from yishi_bot.views import GiveawayView
 
 
@@ -36,6 +38,7 @@ try:
 except ZoneInfoNotFoundError:
     _paris_tz = timezone.utc
 _panel_started_at = datetime.now(tz=_paris_tz)
+_panel_started_monotonic = time.monotonic()
 
 CONFIG_FIELDS = (
     ("staff_role_id", "Role staff"),
@@ -275,6 +278,18 @@ def build_quick_action_items() -> list[dict[str, str]]:
     return [{"key": key, "label": label} for key, label in QUICK_ACTIONS]
 
 
+def format_uptime(seconds: float) -> str:
+    total = max(0, int(seconds))
+    days, remainder = divmod(total, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _seconds = divmod(remainder, 60)
+    if days:
+        return f"{days}j {hours}h {minutes}min"
+    if hours:
+        return f"{hours}h {minutes}min"
+    return f"{minutes} min"
+
+
 def json_download(data: dict[str, Any], filename: str) -> Response:
     payload = json.dumps(data, ensure_ascii=False, indent=2)
     return Response(
@@ -364,6 +379,130 @@ def get_guild_overview(guild: Any | None) -> dict[str, Any]:
         "voice_channels": len(guild.voice_channels),
         "roles": len(guild.roles),
     }
+
+
+def search_members_for(guild: Any | None, query: str) -> list[dict[str, Any]]:
+    """Return a compact member directory without loading every profile page."""
+    bot = get_bot()
+    cleaned = query.strip().lower()
+    if bot is None or guild is None or len(cleaned) < 2:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for member in guild.members:
+        if member.bot:
+            continue
+        if cleaned not in member.display_name.lower() and cleaned not in str(member.id):
+            continue
+        level = bot.get_member_level_stats(guild.id, member.id)
+        invites = bot.get_invite_store(guild.id).get("counts", {}).get(str(member.id), 0)
+        tickets = len(bot.get_open_tickets_for_user(guild.id, member.id))
+        rows.append(
+            {
+                "member_id": member.id,
+                "member_name": member.display_name,
+                "level": level["level"],
+                "grade": level["grade"],
+                "invites": int(invites),
+                "tickets": tickets,
+                "roles": ", ".join(role.name for role in member.roles if not role.is_default()) or "-",
+            }
+        )
+    return sorted(rows, key=lambda row: row["member_name"].lower())[:25]
+
+
+def alerts_for(guild: Any | None) -> list[dict[str, str]]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return [{"level": "danger", "title": "Bot indisponible", "detail": "Les actions Discord sont temporairement impossibles."}]
+
+    now = datetime.now(tz=_paris_tz)
+    alerts: list[dict[str, str]] = []
+    for ticket in bot.get_ticket_store(guild.id).get("channels", {}).values():
+        if ticket.get("status") == "archived":
+            continue
+        last_activity = parse_any_datetime(ticket.get("last_activity_at")) or parse_any_datetime(ticket.get("created_at"))
+        if last_activity is not None and (now - last_activity).total_seconds() >= 86400:
+            alerts.append(
+                {
+                    "level": "warning",
+                    "title": "Ticket sans activité depuis 24 h",
+                    "detail": f"Ticket #{ticket.get('number', '?')} - {ticket.get('type', 'ticket')}",
+                }
+            )
+
+    sale_store = bot.get_sale_store(guild.id)
+    pending_sales = len(sale_store.get("reviews", {}))
+    if pending_sales:
+        alerts.append({"level": "warning", "title": "Ventes en attente", "detail": f"{pending_sales} vente(s) attend(ent) une validation staff."})
+
+    for giveaway in bot.get_giveaway_entries(guild.id).values():
+        if giveaway.get("status") != "active":
+            continue
+        seconds_left = int(giveaway.get("end_at", 0)) - int(now.timestamp())
+        if 0 <= seconds_left <= 3600:
+            alerts.append({"level": "info", "title": "Giveaway bientôt terminé", "detail": f"{giveaway.get('prize', 'Giveaway')} se termine dans moins d'une heure."})
+
+    config = bot.get_guild_config(guild.id)
+    missing = [label for key, label in CONFIG_FIELDS if key in {"logs_channel_id", "giveaways_channel_id", "sales_channel_id"} and not config.get(key)]
+    if missing:
+        alerts.append({"level": "warning", "title": "Configuration incomplète", "detail": "À renseigner : " + ", ".join(missing) + "."})
+
+    if not bot.get_promo_store(guild.id).get("promotions", []):
+        alerts.append({"level": "info", "title": "Aucune promotion programmée", "detail": "Ajoute une promotion pour alimenter la publication hebdomadaire."})
+
+    return alerts[:30]
+
+
+def health_metrics_for(guild: Any | None) -> dict[str, Any]:
+    bot = get_bot()
+    disk = shutil.disk_usage(PROJECT_ROOT)
+    try:
+        load_average = round(os.getloadavg()[0], 2)
+    except (AttributeError, OSError):
+        load_average = None
+    return {
+        "bot_online": bool(bot and not bot.is_closed()),
+        "uptime": format_uptime(time.monotonic() - _panel_started_monotonic),
+        "latency_ms": round(bot.latency * 1000) if bot is not None and getattr(bot, "latency", None) is not None else 0,
+        "guild_name": guild.name if guild is not None else "-",
+        "database": "PostgreSQL" if DATABASE_URL else "JSON local",
+        "disk_used_gb": round((disk.total - disk.free) / 1024**3, 2),
+        "disk_total_gb": round(disk.total / 1024**3, 2),
+        "disk_percent": round(((disk.total - disk.free) / disk.total) * 100),
+        "load_average": load_average,
+        "pid": os.getpid(),
+    }
+
+
+def backup_payload_for(guild: Any) -> dict[str, Any]:
+    bot = get_bot()
+    if bot is None:
+        return {}
+    return {
+        "exported_at": datetime.now(tz=_paris_tz).isoformat(),
+        "guild_id": guild.id,
+        "guild_name": guild.name,
+        "config": bot.get_guild_config(guild.id),
+        "tickets": bot.get_ticket_store(guild.id),
+        "sales": bot.get_sale_store(guild.id),
+        "giveaways": {"entries": bot.get_giveaway_entries(guild.id), "blacklist": bot.get_giveaway_blacklist(guild.id)},
+        "promotions": bot.get_promo_store(guild.id),
+        "invites": bot.get_invite_store(guild.id),
+        "levels": bot.get_level_store(guild.id),
+        "gacha": bot.gacha_data,
+    }
+
+
+def record_backup_export(guild: Any) -> None:
+    bot = get_bot()
+    if bot is None:
+        return
+    config = bot.get_guild_config(guild.id)
+    history = config.setdefault("panel_backup_history", [])
+    history.append({"created_at": datetime.now(tz=_paris_tz).isoformat(), "type": "Export complet JSON"})
+    config["panel_backup_history"] = history[-20:]
+    bot.save_config()
 
 
 def level_rows_for(guild: Any | None) -> list[dict[str, Any]]:
@@ -1916,6 +2055,59 @@ def levels_page():
     )
 
 
+@app.route("/search")
+@login_required
+def search_page():
+    guild = selected_guild()
+    query = request.args.get("q", "").strip()
+    return render_template(
+        "search.html",
+        query=query,
+        results=search_members_for(guild, query),
+        **panel_context("search"),
+    )
+
+
+@app.route("/alerts")
+@login_required
+def alerts_page():
+    guild = selected_guild()
+    alerts = alerts_for(guild)
+    return render_template(
+        "alerts.html",
+        alerts=alerts,
+        alert_count=len(alerts),
+        **panel_context("alerts"),
+    )
+
+
+@app.route("/health-system")
+@login_required
+def health_page():
+    guild = selected_guild()
+    return render_template(
+        "health.html",
+        metrics=health_metrics_for(guild),
+        **panel_context("health"),
+    )
+
+
+@app.route("/backups")
+@login_required
+def backups_page():
+    bot = get_bot()
+    guild = selected_guild()
+    history: list[dict[str, Any]] = []
+    if bot is not None and guild is not None:
+        history = list(reversed(bot.get_guild_config(guild.id).get("panel_backup_history", [])))
+    return render_template(
+        "backups.html",
+        history=history,
+        database_enabled=bool(DATABASE_URL),
+        **panel_context("backups"),
+    )
+
+
 @app.route("/logs")
 @login_required
 def logs_page():
@@ -2055,6 +2247,9 @@ def export_dataset(dataset: str):
         "levels": bot.get_level_store(guild.id),
         "gacha": bot.gacha_data,
     }
+    if dataset == "backup":
+        record_backup_export(guild)
+        return json_download(backup_payload_for(guild), f"{guild.id}-backup-complet.json")
     if dataset not in exports:
         return Response("Dataset inconnu.", status=404)
     return json_download(exports[dataset], f"{guild.id}-{dataset}.json")

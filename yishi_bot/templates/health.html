@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Santé système - Yishi Panel{% endblock %}
+{% block header %}Santé système{% endblock %}
+{% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Bot</span><strong>{{ "En ligne" if metrics.bot_online else "Hors ligne" }}</strong></article>
+  <article class="stat-card"><span>Uptime panel</span><strong>{{ metrics.uptime }}</strong></article>
+  <article class="stat-card"><span>Latence Discord</span><strong>{{ metrics.latency_ms }} ms</strong></article>
+  <article class="stat-card"><span>Base de données</span><strong>{{ metrics.database }}</strong></article>
+</section>
+<section class="panel-section two-grid">
+  <article class="info-card">
+    <div class="card-head"><h3>Ressources VPS</h3></div>
+    <p><strong>Disque :</strong> {{ metrics.disk_used_gb }} Go / {{ metrics.disk_total_gb }} Go ({{ metrics.disk_percent }}%)</p>
+    <p><strong>Charge système :</strong> {{ metrics.load_average if metrics.load_average is not none else "Indisponible" }}</p>
+  </article>
+  <article class="info-card">
+    <div class="card-head"><h3>Processus</h3></div>
+    <p><strong>PID bot :</strong> {{ metrics.pid }}</p>
+    <p><strong>Serveur Discord :</strong> {{ metrics.guild_name }}</p>
+    <p><strong>Accès :</strong> HTTPS privé via Tailscale</p>
+  </article>
+</section>
+{% endblock %}

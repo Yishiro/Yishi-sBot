@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Recherche - Yishi Panel{% endblock %}
+{% block header %}Recherche globale{% endblock %}
+{% block content %}
+<section class="panel-section">
+  <div class="section-head">
+    <div>
+      <h2>Retrouver un membre</h2>
+      <p>Recherche par pseudo ou ID Discord, puis ouvre son profil complet.</p>
+    </div>
+  </div>
+  <form method="get" class="form-row">
+    {% if selected_guild %}<input type="hidden" name="guild_id" value="{{ selected_guild.id }}">{% endif %}
+    <label>
+      <span>Pseudo ou ID membre</span>
+      <input type="search" name="q" value="{{ query }}" placeholder="Ex: Alex ou 123456789" minlength="2" required>
+    </label>
+    <button type="submit" class="button">Rechercher</button>
+  </form>
+</section>
+
+{% if query %}
+<section class="panel-section">
+  <div class="section-head"><div><h2>Résultats</h2><p>{{ results|length }} membre(s) trouvé(s).</p></div></div>
+  {% if results %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Membre</th><th>Niveau</th><th>Invitations</th><th>Tickets ouverts</th><th>Rôles</th><th></th></tr></thead>
+      <tbody>
+      {% for member in results %}
+        <tr>
+          <td>{{ member.member_name }}<br><span class="soft-label">{{ member.member_id }}</span></td>
+          <td>{{ member.grade }} - {{ member.level }}</td>
+          <td>{{ member.invites }}</td>
+          <td>{{ member.tickets }}</td>
+          <td>{{ member.roles }}</td>
+          <td><a class="button secondary" href="{{ url_for('members_page', guild_id=selected_guild.id, member_id=member.member_id) }}">Profil</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">Aucun membre ne correspond à cette recherche.</div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

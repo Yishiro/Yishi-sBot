@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Sauvegardes - Yishi Panel{% endblock %}
+{% block header %}Sauvegardes{% endblock %}
+{% block content %}
+<section class="panel-section two-grid">
+  <article class="info-card">
+    <div class="card-head"><h3>Export complet</h3></div>
+    <p>Télécharge toutes les données du serveur : configuration, tickets, ventes, giveaways, promotions, invitations, XP et Gacha.</p>
+    {% if selected_guild %}
+    <a class="button" href="{{ url_for('export_dataset', dataset='backup', guild_id=selected_guild.id) }}">Télécharger la sauvegarde JSON</a>
+    {% endif %}
+  </article>
+  <article class="info-card">
+    <div class="card-head"><h3>Stockage actuel</h3></div>
+    <p>{% if database_enabled %}Le bot utilise PostgreSQL : les données restent persistantes sur le VPS.{% else %}Le bot utilise les fichiers JSON locaux : télécharge régulièrement une sauvegarde.{% endif %}</p>
+    <a class="button secondary" href="{{ url_for('dashboard', guild_id=selected_guild.id if selected_guild else None) }}">Voir les exports rapides</a>
+  </article>
+</section>
+<section class="panel-section">
+  <div class="section-head"><div><h2>Historique des exports</h2><p>Les fichiers restent dans ton navigateur après téléchargement.</p></div></div>
+  {% if history %}
+  <div class="list-stack">
+    {% for item in history %}<div class="list-card"><strong>{{ item.type }}</strong><p>{{ item.created_at }}</p></div>{% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">Aucun export complet effectué depuis le panel.</div>
+  {% endif %}
+</section>
+{% endblock %}

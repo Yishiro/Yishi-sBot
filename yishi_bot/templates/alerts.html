@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Alertes - Yishi Panel{% endblock %}
+{% block header %}Centre d'alertes{% endblock %}
+{% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Alertes actives</span><strong>{{ alert_count }}</strong></article>
+</section>
+<section class="panel-section">
+  <div class="section-head"><div><h2>À surveiller</h2><p>Ces alertes ne modifient rien automatiquement.</p></div></div>
+  {% if alerts %}
+  <div class="list-stack">
+    {% for alert in alerts %}
+    <article class="list-card alert-card {{ alert.level }}">
+      <div class="mini-meta"><span>{{ alert.level|upper }}</span></div>
+      <h3>{{ alert.title }}</h3>
+      <p>{{ alert.detail }}</p>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">Aucune alerte : tout est propre pour le moment.</div>
+  {% endif %}
+</section>
+{% endblock %}
