@@ -2694,7 +2694,13 @@ class YishiBot(commands.Bot):
         embed = self.build_promo_embed(promo)
         content = "-# Interested? Open a ticket to claim this weekly offer."
         if automatic:
-            message = await self.replace_bot_messages(channel, content=content, embed=embed)
+            message = await self.replace_scheduled_bot_message(
+                guild,
+                channel,
+                "weekly_promotion",
+                content=content,
+                embed=embed,
+            )
         else:
             message = await channel.send(content=content, embed=embed)
 
@@ -2858,22 +2864,32 @@ class YishiBot(commands.Bot):
     def build_daily_level_message(self, guild_id: int) -> str:
         return self.get_daily_level_message_text(guild_id)
 
-    async def replace_bot_messages(
+    async def replace_scheduled_bot_message(
         self,
+        guild: discord.Guild,
         channel: discord.TextChannel,
+        message_key: str,
         *,
         content: str | None = None,
         embed: discord.Embed | None = None,
     ) -> discord.Message:
-        """Keep dedicated automatic-post channels clean without deleting member content."""
+        """Replace only the previous scheduled post, never other bot announcements."""
+        config = self.get_guild_config(guild.id)
+        message_ids = config.setdefault("scheduled_message_ids", {})
         bot_user_id = self.user.id if self.user is not None else None
-        if bot_user_id is not None:
-            async for message in channel.history(limit=None, oldest_first=False):
-                if message.author.id != bot_user_id:
-                    continue
-                with contextlib.suppress(discord.HTTPException):
-                    await message.delete()
-        return await channel.send(content=content, embed=embed)
+        previous_id = message_ids.get(message_key)
+        if bot_user_id is not None and previous_id:
+            try:
+                previous = await channel.fetch_message(int(previous_id))
+                if previous.author.id == bot_user_id:
+                    await previous.delete()
+            except (discord.NotFound, discord.HTTPException, ValueError, TypeError):
+                pass
+
+        message = await channel.send(content=content, embed=embed)
+        message_ids[message_key] = message.id
+        self.save_config()
+        return message
 
     async def process_daily_scheduled_posts(self) -> None:
         now_paris = self.utcnow().astimezone(self.paris_tz)
@@ -2894,8 +2910,10 @@ class YishiBot(commands.Bot):
                     isinstance(level_channel, discord.TextChannel)
                     and daily_posts.get(level_key) != day_key
                 ):
-                    await self.replace_bot_messages(
+                    await self.replace_scheduled_bot_message(
+                        guild,
                         level_channel,
+                        "daily_level",
                         content=self.build_daily_level_message(guild.id),
                     )
                     daily_posts[level_key] = day_key
@@ -2908,8 +2926,10 @@ class YishiBot(commands.Bot):
                     isinstance(sales_channel, discord.TextChannel)
                     and daily_posts.get(sales_key) != day_key
                 ):
-                    await self.replace_bot_messages(
+                    await self.replace_scheduled_bot_message(
+                        guild,
                         sales_channel,
+                        "daily_sales_rules",
                         embed=self.build_sales_rules_embed(),
                     )
                     daily_posts[sales_key] = day_key
