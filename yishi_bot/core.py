@@ -2921,18 +2921,14 @@ class YishiBot(commands.Bot):
 
             if config.get("auto_sales_rules_enabled", True):
                 sales_channel = guild.get_channel(self.get_daily_sales_rules_channel_id(guild.id))
-                sales_key = f"{guild.id}:sales_rules"
+                last_sales_post = self.parse_iso_datetime(config.get("last_sales_rules_post_at"))
                 if (
                     isinstance(sales_channel, discord.TextChannel)
-                    and daily_posts.get(sales_key) != day_key
+                    and (last_sales_post is None or now_paris - last_sales_post.astimezone(self.paris_tz) >= timedelta(days=2))
                 ):
-                    await self.replace_scheduled_bot_message(
-                        guild,
-                        sales_channel,
-                        "daily_sales_rules",
-                        embed=self.build_sales_rules_embed(),
-                    )
-                    daily_posts[sales_key] = day_key
+                    await sales_channel.send(embed=self.build_sales_rules_embed())
+                    config["last_sales_rules_post_at"] = self.iso_now()
+                    self.save_config()
                     changed = True
 
         if changed:

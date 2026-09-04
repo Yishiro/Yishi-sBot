@@ -1057,12 +1057,7 @@ def run_quick_action(bot: Any, guild: Any, action: str) -> tuple[str, str]:
             channel = guild.get_channel(bot.get_daily_sales_rules_channel_id(guild.id))
             if channel is None:
                 raise RuntimeError("Salon ventes introuvable.")
-            await bot.replace_scheduled_bot_message(
-                guild,
-                channel,
-                "daily_sales_rules",
-                embed=bot.build_sales_rules_embed(),
-            )
+            await channel.send(embed=bot.build_sales_rules_embed())
 
         ok, message = run_bot_coroutine(_send_sales_now(), timeout=60)
         return ("success" if ok else "error", "Reglement ventes envoye." if ok else f"Echec: {message}")
