@@ -29,6 +29,10 @@
       <input type="checkbox" name="auto_sales_rules_enabled" {% if auto_config.auto_sales_rules_enabled %}checked{% endif %}>
       <span>Activer le reglement ventes quotidien</span>
     </label>
+    <label class="checkbox-row">
+      <input type="checkbox" name="weekly_community_messages_enabled" {% if auto_config.weekly_community_messages_enabled %}checked{% endif %}>
+      <span>Activer les annonces communautaires lundi et mardi</span>
+    </label>
     <label>
       <span>Texte custom progression</span>
       <textarea name="daily_level_message" placeholder="Laisse vide pour utiliser le message automatique actuel.">{{ auto_config.daily_level_message }}</textarea>

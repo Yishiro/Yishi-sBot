@@ -176,6 +176,23 @@ class GeneralCog(commands.Cog):
         embed.set_footer(text="Les problèmes de permissions se règlent dans les rôles Discord.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="annonce_relance", description="Publie l'annonce de relance du serveur")
+    @app_commands.default_permissions(manage_guild=True)
+    async def annonce_relance(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        if not self.bot.is_staff_member(interaction.user):  # type: ignore[arg-type]
+            await interaction.response.send_message("Commande réservée au staff.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self.bot.post_relaunch_announcement(interaction.guild)
+        except RuntimeError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+        await interaction.followup.send("Annonce de relance publiée dans le salon annonces.", ephemeral=True)
+
     @app_commands.command(name="paiement", description="Affiche les moyens de paiement du shop")
     async def paiement(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(

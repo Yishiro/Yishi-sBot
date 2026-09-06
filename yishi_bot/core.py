@@ -3071,6 +3071,65 @@ class YishiBot(commands.Bot):
             except discord.HTTPException:
                 continue
 
+    def get_announcements_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        channel = guild.get_channel(self.get_guild_config(guild.id).get("announcements_channel_id"))
+        return channel if isinstance(channel, discord.TextChannel) else None
+
+    def build_relaunch_announcement_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="Yishi's Shop reprend du rythme",
+            description=(
+                "Le serveur passe à une nouvelle étape : plus d'activité, plus de récompenses et un shop mieux organisé.\n\n"
+                "L'objectif est simple : créer une vraie communauté active, avec des événements, des échanges sécurisés et des récompenses pour les membres impliqués."
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Nouveautés", value="Top invitations chaque semaine, XP et récompenses Gacha, ventes avec validation staff, Middleman officiel gratuit (0 %).", inline=False)
+        embed.add_field(name="Top invitations", value="Invite tes amis : le Top 3 hebdomadaire sera annoncé chaque dimanche à midi et pourra recevoir des récompenses.", inline=False)
+        embed.add_field(name="Activités", value="Des mini-activités et événements arrivent chaque mercredi après-midi. Les détails seront annoncés la veille.", inline=False)
+        embed.add_field(name="Recrutement staff", value="Le recrutement Helper / Modo Test ouvrira bientôt. Reste actif, aide les membres et montre que tu es fiable.", inline=False)
+        embed.set_footer(text="Yishi's Shop • Merci à ceux qui participent à la relance")
+        return embed
+
+    def build_weekly_objectives_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Nouvelle semaine, nouveaux objectifs", description="Le classement des invitations est relancé. Chaque invitation réelle te rapproche du Top 3 de dimanche.", color=discord.Color.blurple())
+        embed.add_field(name="Objectifs de la semaine", value="• Monte dans le Top invitations\n• Gagne de l'XP en messages et en vocal\n• Participe aux activités du serveur\n• Utilise les ventes et MM de façon sécurisée", inline=False)
+        embed.add_field(name="Récompenses", value="Les 3 premiers du classement invitations seront mis à l'honneur dimanche à midi. Des récompenses pourront être distribuées par le staff.", inline=False)
+        embed.set_footer(text="Prochain bilan : dimanche à 12h00")
+        return embed
+
+    def build_wednesday_activity_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Mini-activité demain à 15h00", description="Rendez-vous mercredi après-midi pour une mini-activité communautaire. Passe dans le serveur et surveille les salons pour participer.", color=discord.Color.purple())
+        embed.add_field(name="Pourquoi venir ?", value="XP, animation, discussions et parfois de petites récompenses selon l'activité.", inline=False)
+        embed.add_field(name="Bientôt", value="Le recrutement staff approche. Les membres actifs, respectueux et utiles auront une vraie chance de rejoindre l'équipe.", inline=False)
+        embed.set_footer(text="Yishi's Shop • Mercredi 15h00")
+        return embed
+
+    async def post_relaunch_announcement(self, guild: discord.Guild) -> None:
+        channel = self.get_announcements_channel(guild)
+        if channel is None:
+            raise RuntimeError("Salon annonces introuvable. Configure-le dans le panel ou avec /setup.")
+        await channel.send(embed=self.build_relaunch_announcement_embed())
+
+    async def process_weekly_community_announcements(self) -> None:
+        now_paris = self.utcnow().astimezone(self.paris_tz)
+        week_key = now_paris.strftime("%G-W%V")
+        for guild in self.guilds:
+            config = self.get_guild_config(guild.id)
+            if not config.get("weekly_community_messages_enabled", True):
+                continue
+            channel = self.get_announcements_channel(guild)
+            if channel is None:
+                continue
+            if now_paris.weekday() == 0 and now_paris.hour == 12 and now_paris.minute == 0 and config.get("last_weekly_objectives_week") != week_key:
+                await channel.send(embed=self.build_weekly_objectives_embed())
+                config["last_weekly_objectives_week"] = week_key
+                self.save_config()
+            if now_paris.weekday() == 1 and now_paris.hour == 20 and now_paris.minute == 0 and config.get("last_weekly_activity_week") != week_key:
+                await channel.send(embed=self.build_wednesday_activity_embed())
+                config["last_weekly_activity_week"] = week_key
+                self.save_config()
+
     async def ensure_invite_leaderboard_channel(self, guild: discord.Guild) -> discord.TextChannel:
         config = self.get_guild_config(guild.id)
         channel = guild.get_channel(config.get("invite_leaderboard_channel_id"))
@@ -3392,6 +3451,7 @@ class YishiBot(commands.Bot):
                 await self.process_middleman_recalls()
                 await self.process_invite_leaderboard_posts()
                 await self.process_weekly_promotions()
+                await self.process_weekly_community_announcements()
                 await self.process_weekly_free_access_reset()
                 await self.process_daily_scheduled_posts()
                 await self.process_voice_xp()

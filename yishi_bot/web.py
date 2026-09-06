@@ -1246,6 +1246,7 @@ def auto_messages():
         if action == "save":
             config["auto_level_message_enabled"] = request.form.get("auto_level_message_enabled") == "on"
             config["auto_sales_rules_enabled"] = request.form.get("auto_sales_rules_enabled") == "on"
+            config["weekly_community_messages_enabled"] = request.form.get("weekly_community_messages_enabled") == "on"
             config["daily_level_channel_id"] = parse_int_or_none(request.form.get("daily_level_channel_id", "")) or config.get("daily_level_channel_id")
             config["daily_sales_rules_channel_id"] = parse_int_or_none(request.form.get("daily_sales_rules_channel_id", "")) or config.get("daily_sales_rules_channel_id")
             config["daily_level_message"] = request.form.get("daily_level_message", "").strip()
@@ -1260,6 +1261,7 @@ def auto_messages():
     auto_config = {
         "auto_level_message_enabled": config.get("auto_level_message_enabled", True),
         "auto_sales_rules_enabled": config.get("auto_sales_rules_enabled", True),
+        "weekly_community_messages_enabled": config.get("weekly_community_messages_enabled", True),
         "daily_level_channel_id": bot.get_daily_level_channel_id(guild.id),
         "daily_sales_rules_channel_id": bot.get_daily_sales_rules_channel_id(guild.id),
         "daily_level_message": bot.get_daily_level_message_text(guild.id),
