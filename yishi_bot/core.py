@@ -35,6 +35,7 @@ from yishi_bot.cogs.gacha import GachaCog
 from yishi_bot.cogs.general import GeneralCog
 from yishi_bot.cogs.giveaways import GiveawaysCog
 from yishi_bot.cogs.moderation import ModerationCog
+from yishi_bot.cogs.middleman import MiddlemanCog
 from yishi_bot.cogs.promotions import PromotionsCog
 from yishi_bot.cogs.progression import ProgressionCog
 from yishi_bot.cogs.sales import SalesCog
@@ -52,7 +53,18 @@ from yishi_bot.helpers import (
     parse_duration,
     split_long_message,
 )
-from yishi_bot.views import GiveawayView, SaleApprovalView, SaleListingView, TicketArchiveView, TicketCloseView, TicketPanelView
+from yishi_bot.views import GiveawayView, MiddlemanView, SaleApprovalView, SaleListingView, TicketArchiveView, TicketCloseView, TicketPanelView
+
+
+MIDDLEMAN_STATUS_LABELS = {
+    "waiting_mm": "En attente d'un Middleman",
+    "awaiting_payment": "En attente du paiement",
+    "payment_confirmed": "Paiement confirmé",
+    "product_delivery": "Produit à remettre",
+    "completed": "Échange terminé",
+    "dispute": "Litige",
+    "closed": "Clôturé",
+}
 
 class YishiBot(commands.Bot):
     def __init__(self) -> None:
@@ -98,11 +110,13 @@ class YishiBot(commands.Bot):
         self.add_view(GiveawayView(self))
         self.add_view(SaleListingView(self))
         self.add_view(SaleApprovalView(self))
+        self.add_view(MiddlemanView(self))
 
         await self.add_cog(EventsCog(self))
         await self.add_cog(GeneralCog(self))
         await self.add_cog(GachaCog(self))
         await self.add_cog(ModerationCog(self))
+        await self.add_cog(MiddlemanCog(self))
         await self.add_cog(PromotionsCog(self))
         await self.add_cog(ProgressionCog(self))
         await self.add_cog(SalesCog(self))
@@ -369,7 +383,7 @@ class YishiBot(commands.Bot):
     def get_sale_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.sale_data:
-            self.sale_data[key] = {"messages": {}, "channels": {}, "reviews": {}}
+            self.sale_data[key] = {"messages": {}, "channels": {}, "reviews": {}, "middleman": {"channels": {}, "history": [], "next_number": 1}}
             self.save_sales()
         else:
             store = self.sale_data[key]
@@ -386,9 +400,21 @@ class YishiBot(commands.Bot):
                         "recall_sent_at": None,
                     }
                     changed = True
+            middleman = store.get("middleman")
+            if not isinstance(middleman, dict):
+                middleman = {"channels": {}, "history": [], "next_number": 1}
+                store["middleman"] = middleman
+                changed = True
+            for field, default in (("channels", {}), ("history", []), ("next_number", 1)):
+                if field not in middleman or not isinstance(middleman[field], type(default)):
+                    middleman[field] = default
+                    changed = True
             if changed:
                 self.save_sales()
         return self.sale_data[key]
+
+    def get_middleman_store(self, guild_id: int) -> dict[str, Any]:
+        return self.get_sale_store(guild_id)["middleman"]
 
     def get_promo_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
@@ -1869,6 +1895,204 @@ class YishiBot(commands.Bot):
         embed.set_footer(text="Validation staff requise")
         return embed
 
+    async def ensure_middleman_config(self, guild: discord.Guild) -> tuple[discord.Role, discord.CategoryChannel]:
+        config = self.get_guild_config(guild.id)
+        middleman_role = guild.get_role(config["middleman_role_id"]) if config.get("middleman_role_id") else None
+        if middleman_role is None:
+            middleman_role = discord.utils.get(guild.roles, name=MIDDLEMAN_ROLE_NAME)
+        if middleman_role is None:
+            middleman_role = await guild.create_role(
+                name=MIDDLEMAN_ROLE_NAME,
+                colour=discord.Colour.dark_gold(),
+                mentionable=True,
+                reason="Configuration automatique Middleman",
+            )
+
+        category = guild.get_channel(config["middleman_category_id"]) if config.get("middleman_category_id") else None
+        if not isinstance(category, discord.CategoryChannel):
+            category = discord.utils.get(guild.categories, name=MIDDLEMAN_CATEGORY_NAME)
+        if category is None:
+            category = await guild.create_category(MIDDLEMAN_CATEGORY_NAME, reason="Configuration automatique Middleman")
+
+        config["middleman_role_id"] = middleman_role.id
+        config["middleman_category_id"] = category.id
+        self.save_config()
+        return middleman_role, category
+
+    def is_middleman_member(self, member: discord.Member) -> bool:
+        config = self.get_guild_config(member.guild.id)
+        role = member.guild.get_role(config["middleman_role_id"]) if config.get("middleman_role_id") else None
+        return self.is_staff_member(member) or (role is not None and role in member.roles)
+
+    def build_middleman_embed(self, exchange: dict[str, Any]) -> discord.Embed:
+        status = MIDDLEMAN_STATUS_LABELS.get(exchange.get("status"), exchange.get("status", "Inconnu"))
+        color = discord.Color.orange() if exchange.get("status") == "dispute" else discord.Color.gold()
+        if exchange.get("status") == "completed":
+            color = discord.Color.green()
+        embed = discord.Embed(
+            title=f"🤝 Échange sécurisé #{exchange['number']}",
+            description=(
+                "Le Middleman est **recommandé mais non obligatoire** pour sécuriser l'échange.\n"
+                "Les MM officiels sont gratuits : **0 % de frais**.\n"
+                "Ne finalisez jamais l'échange en MP : restez dans ce salon pour être couverts par le staff."
+            ),
+            color=color,
+        )
+        embed.add_field(name="Demandeur", value=f"<@{exchange['requester_id']}>", inline=True)
+        embed.add_field(name="Autre membre", value=f"<@{exchange['partner_id']}>", inline=True)
+        embed.add_field(name="Middleman", value=f"<@{exchange['middleman_id']}>" if exchange.get("middleman_id") else "En attente", inline=True)
+        embed.add_field(name="Produit", value=exchange["product"], inline=True)
+        embed.add_field(name="Prix / valeur", value=exchange["price"], inline=True)
+        embed.add_field(name="Statut", value=status, inline=True)
+        embed.add_field(name="Détails", value=exchange["details"], inline=False)
+        embed.set_footer(text="Yishi's Shop • Middleman officiel • 0 % de frais")
+        return embed
+
+    async def create_middleman(
+        self,
+        interaction: discord.Interaction,
+        partner: discord.Member,
+        product: str,
+        price: str,
+        details: str,
+    ) -> None:
+        guild = interaction.guild
+        requester = interaction.user
+        if guild is None or not isinstance(requester, discord.Member):
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        if partner.bot or partner.id == requester.id:
+            await interaction.response.send_message("Choisis un autre membre réel pour l'échange.", ephemeral=True)
+            return
+
+        middleman_role, category = await self.ensure_middleman_config(guild)
+        store = self.get_middleman_store(guild.id)
+        number = int(store.get("next_number", 1))
+        store["next_number"] = number + 1
+
+        overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            requester: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True),
+            partner: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True),
+            middleman_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True),
+        }
+        config = self.get_guild_config(guild.id)
+        staff_role = guild.get_role(config["staff_role_id"]) if config.get("staff_role_id") else None
+        if staff_role is not None:
+            overwrites[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True, manage_messages=True)
+        if guild.owner is not None:
+            overwrites[guild.owner] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True, manage_messages=True)
+
+        await interaction.response.defer(ephemeral=True)
+        channel = await guild.create_text_channel(
+            slugify_name(f"mm-{number}-{requester.display_name}-{partner.display_name}")[:90],
+            category=category,
+            overwrites=overwrites,
+            reason=f"Échange Middleman #{number}",
+        )
+        exchange = {
+            "number": number,
+            "channel_id": channel.id,
+            "requester_id": requester.id,
+            "partner_id": partner.id,
+            "product": product,
+            "price": price,
+            "details": details,
+            "status": "waiting_mm",
+            "middleman_id": None,
+            "created_at": self.iso_now(),
+            "updated_at": self.iso_now(),
+            "history": [],
+        }
+        store["channels"][str(channel.id)] = exchange
+        self.save_sales()
+        await channel.send(content=f"{requester.mention} {partner.mention} {middleman_role.mention}", embed=self.build_middleman_embed(exchange), view=MiddlemanView(self))
+        await self.log_event(guild, "Échange Middleman ouvert", f"{requester.mention} a ouvert l'échange #{number} avec {partner.mention}.", discord.Color.gold(), fields=[("Salon", channel.mention, True), ("Produit", product, True), ("Prix", price, True)])
+        await interaction.followup.send(f"Échange sécurisé créé : {channel.mention}", ephemeral=True)
+
+    def get_middleman_exchange(self, guild_id: int, channel_id: int) -> dict[str, Any] | None:
+        return self.get_middleman_store(guild_id)["channels"].get(str(channel_id))
+
+    def can_manage_middleman(self, member: discord.Member, exchange: dict[str, Any]) -> bool:
+        return self.is_staff_member(member) or exchange.get("middleman_id") == member.id
+
+    async def claim_middleman(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        channel = interaction.channel
+        member = interaction.user
+        if guild is None or not isinstance(channel, discord.TextChannel) or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Action indisponible.", ephemeral=True)
+            return
+        exchange = self.get_middleman_exchange(guild.id, channel.id)
+        if exchange is None:
+            await interaction.response.send_message("Ce salon n'est pas un échange Middleman.", ephemeral=True)
+            return
+        if not self.is_middleman_member(member):
+            await interaction.response.send_message("Seuls les Middleman officiels ou le staff peuvent prendre cet échange.", ephemeral=True)
+            return
+        if exchange.get("middleman_id") and exchange["middleman_id"] != member.id:
+            await interaction.response.send_message("Cet échange est déjà pris en charge.", ephemeral=True)
+            return
+        exchange["middleman_id"] = member.id
+        exchange["status"] = "awaiting_payment"
+        exchange["updated_at"] = self.iso_now()
+        exchange["history"].append({"at": self.iso_now(), "actor_id": member.id, "action": "Prise en charge"})
+        self.save_sales()
+        if interaction.message is not None:
+            await interaction.message.edit(embed=self.build_middleman_embed(exchange), view=MiddlemanView(self))
+        await interaction.response.send_message(f"{member.mention} prend en charge l'échange. Statut : attente du paiement.")
+
+    async def update_middleman_status(self, interaction: discord.Interaction, status: str) -> None:
+        guild = interaction.guild
+        channel = interaction.channel
+        member = interaction.user
+        if guild is None or not isinstance(channel, discord.TextChannel) or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Action indisponible.", ephemeral=True)
+            return
+        exchange = self.get_middleman_exchange(guild.id, channel.id)
+        if exchange is None or not self.can_manage_middleman(member, exchange):
+            await interaction.response.send_message("Seul le MM assigné ou le haut staff peut modifier cet échange.", ephemeral=True)
+            return
+        if status not in MIDDLEMAN_STATUS_LABELS or status in {"waiting_mm", "closed"}:
+            await interaction.response.send_message("Statut invalide.", ephemeral=True)
+            return
+        exchange["status"] = status
+        exchange["updated_at"] = self.iso_now()
+        exchange["history"].append({"at": self.iso_now(), "actor_id": member.id, "action": MIDDLEMAN_STATUS_LABELS[status]})
+        self.save_sales()
+        if interaction.message is not None:
+            await interaction.message.edit(embed=self.build_middleman_embed(exchange), view=MiddlemanView(self))
+        await interaction.response.send_message(f"Statut mis à jour : **{MIDDLEMAN_STATUS_LABELS[status]}**.", ephemeral=True)
+
+    async def close_middleman(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        channel = interaction.channel
+        member = interaction.user
+        if guild is None or not isinstance(channel, discord.TextChannel) or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Action indisponible.", ephemeral=True)
+            return
+        exchange = self.get_middleman_exchange(guild.id, channel.id)
+        if exchange is None:
+            await interaction.response.send_message("Ce salon n'est pas un échange Middleman.", ephemeral=True)
+            return
+        if not self.can_manage_middleman(member, exchange):
+            await interaction.response.send_message("Seul le MM assigné ou le haut staff peut clôturer cet échange.", ephemeral=True)
+            return
+        exchange["final_status"] = exchange.get("status", "completed")
+        exchange["status"] = "closed"
+        exchange["closed_at"] = self.iso_now()
+        exchange["closed_by"] = member.id
+        exchange["history"].append({"at": self.iso_now(), "actor_id": member.id, "action": "Clôturé"})
+        store = self.get_middleman_store(guild.id)
+        store["channels"].pop(str(channel.id), None)
+        store["history"].append(exchange)
+        store["history"] = store["history"][-200:]
+        self.save_sales()
+        await interaction.response.send_message("Échange clôturé, suppression du salon dans 3 secondes.")
+        await self.log_event(guild, "Échange Middleman clôturé", f"{member.mention} a clôturé l'échange #{exchange['number']}.", discord.Color.green(), fields=[("Statut final", MIDDLEMAN_STATUS_LABELS.get(exchange.get("status"), "Clôturé"), True)])
+        await asyncio.sleep(3)
+        await channel.delete(reason=f"Échange Middleman clôturé par {member}")
+
     async def ensure_sales_config(self, guild: discord.Guild) -> tuple[discord.TextChannel, discord.CategoryChannel, discord.TextChannel]:
         config = self.get_guild_config(guild.id)
         sales_channel = self.get_sales_channel(guild)
@@ -2143,7 +2367,9 @@ class YishiBot(commands.Bot):
             title="🧾 Vente ouverte",
             description=(
                 "Ce salon privé a été créé pour finaliser la transaction.\n"
-                "Le staff pourra clôturer la vente une fois terminée."
+                "Le staff pourra clôturer la vente une fois terminée.\n\n"
+                "🤝 **Middleman recommandé :** les MM officiels sont gratuits (0 %). "
+                "Pour sécuriser l'échange, utilisez `/mm` et restez dans le salon créé par le bot."
             ),
             color=discord.Color.green(),
         )
@@ -4087,6 +4313,7 @@ class YishiBot(commands.Bot):
 
     async def sync_guild_commands(self, guild: discord.Guild) -> None:
         await self.ensure_ticket_config(guild)
+        await self.ensure_middleman_config(guild)
         await self.cache_invites(guild)
         self.initialize_invite_role_baseline(guild.id)
         await self.sync_all_invite_roles(guild)

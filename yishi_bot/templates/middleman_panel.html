@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Middleman - Yishi Panel{% endblock %}
+{% block header %}Middleman{% endblock %}
+{% block content %}
+<section class="cards-grid">
+  <article class="stat-card"><span>Échanges actifs</span><strong>{{ middleman_stats.active }}</strong></article>
+  <article class="stat-card"><span>Échanges clôturés</span><strong>{{ middleman_stats.completed }}</strong></article>
+  <article class="stat-card"><span>Litiges</span><strong>{{ middleman_stats.disputes }}</strong></article>
+</section>
+<section class="panel-section">
+  <div class="section-head"><div><h2>Échanges en cours</h2><p>Les MM officiels sont recommandés et ne prennent aucun frais.</p></div></div>
+  {% if active_exchanges %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Produit</th><th>Prix</th><th>Participants</th><th>MM</th><th>Statut</th><th>Créé le</th></tr></thead>
+    <tbody>{% for item in active_exchanges %}<tr><td>#{{ item.number }}</td><td>{{ item.product }}</td><td>{{ item.price }}</td><td>{{ item.requester }} / {{ item.partner }}</td><td>{{ item.middleman }}</td><td>{{ item.status }}</td><td>{{ item.created_at }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="empty-state">Aucun échange Middleman actif.</div>{% endif %}
+</section>
+<section class="panel-section">
+  <div class="section-head"><div><h2>Historique</h2><p>Les 50 derniers échanges clôturés.</p></div></div>
+  {% if history_exchanges %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Produit</th><th>Participants</th><th>MM</th><th>Clôturé le</th></tr></thead>
+    <tbody>{% for item in history_exchanges %}<tr><td>#{{ item.number }}</td><td>{{ item.product }}</td><td>{{ item.requester }} / {{ item.partner }}</td><td>{{ item.middleman }}</td><td>{{ item.closed_at }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="empty-state">Aucun échange clôturé pour le moment.</div>{% endif %}
+</section>
+{% endblock %}

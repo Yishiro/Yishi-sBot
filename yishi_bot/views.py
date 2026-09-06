@@ -153,6 +153,51 @@ class SaleListingView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(SaleBuyButton(bot))
 
+
+class MiddlemanClaimButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(label="Prendre en charge", style=discord.ButtonStyle.primary, emoji="🤝", custom_id="middleman_claim")
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.claim_middleman(interaction)
+
+
+class MiddlemanStatusSelect(discord.ui.Select):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(
+            placeholder="Mettre à jour le statut...",
+            custom_id="middleman_status",
+            options=[
+                discord.SelectOption(label="En attente du paiement", value="awaiting_payment", emoji="💳"),
+                discord.SelectOption(label="Paiement confirmé", value="payment_confirmed", emoji="✅"),
+                discord.SelectOption(label="Produit à remettre", value="product_delivery", emoji="📦"),
+                discord.SelectOption(label="Échange terminé", value="completed", emoji="🏁"),
+                discord.SelectOption(label="Litige", value="dispute", emoji="⚠️"),
+            ],
+        )
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.update_middleman_status(interaction, self.values[0])
+
+
+class MiddlemanCloseButton(discord.ui.Button):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(label="Clôturer", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="middleman_close")
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.bot.close_middleman(interaction)
+
+
+class MiddlemanView(discord.ui.View):
+    def __init__(self, bot: "YishiBot") -> None:
+        super().__init__(timeout=None)
+        self.add_item(MiddlemanClaimButton(bot))
+        self.add_item(MiddlemanStatusSelect(bot))
+        self.add_item(MiddlemanCloseButton(bot))
+
 class SaleApproveButton(discord.ui.Button):
     def __init__(self, bot: "YishiBot") -> None:
         super().__init__(

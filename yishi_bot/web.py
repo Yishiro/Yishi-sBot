@@ -50,6 +50,7 @@ CONFIG_FIELDS = (
     ("admin_role_id", "Role admin"),
     ("founder_role_id", "Role fondateur"),
     ("free_access_role_id", "Role acces free"),
+    ("middleman_role_id", "Role Middleman"),
     ("welcome_channel_id", "Salon bienvenue"),
     ("announcements_channel_id", "Salon annonces"),
     ("shop_channel_id", "Salon shop"),
@@ -61,6 +62,7 @@ CONFIG_FIELDS = (
     ("giveaways_channel_id", "Salon giveaways"),
     ("sales_channel_id", "Salon ventes"),
     ("sales_review_channel_id", "Salon validation ventes"),
+    ("middleman_category_id", "Categorie Middleman"),
     ("promo_channel_id", "Salon promotions"),
     ("staff_prices_channel_id", "Salon tarifs staff"),
     ("free_netflix_channel_id", "Salon netflix free"),
@@ -82,6 +84,7 @@ CONFIG_GROUPS = (
             "admin_role_id",
             "founder_role_id",
             "free_access_role_id",
+            "middleman_role_id",
         ),
     ),
     (
@@ -108,6 +111,7 @@ CONFIG_GROUPS = (
             "transcript_logs_channel_id",
             "gacha_logs_channel_id",
             "sales_review_channel_id",
+            "middleman_category_id",
             "staff_prices_channel_id",
         ),
     ),
@@ -646,6 +650,40 @@ def sales_stats_for(guild: Any | None) -> dict[str, int]:
         "reserved": sum(1 for sale in messages.values() if sale.get("status") == "reserved"),
         "channels": len(store.get("channels", {})),
     }
+
+
+def middleman_rows_for(guild: Any | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+    bot = get_bot()
+    if bot is None or guild is None:
+        return [], [], {"active": 0, "completed": 0, "disputes": 0}
+    store = bot.get_middleman_store(guild.id)
+
+    def row_for(item: dict[str, Any]) -> dict[str, Any]:
+        requester = guild.get_member(int(item.get("requester_id", 0)))
+        partner = guild.get_member(int(item.get("partner_id", 0)))
+        middleman = guild.get_member(int(item.get("middleman_id", 0))) if item.get("middleman_id") else None
+        return {
+            "number": item.get("number", "-"),
+            "product": item.get("product", "-"),
+            "price": item.get("price", "-"),
+            "status": item.get("status", "-"),
+            "requester": requester.display_name if requester else str(item.get("requester_id", "-")),
+            "partner": partner.display_name if partner else str(item.get("partner_id", "-")),
+            "middleman": middleman.display_name if middleman else "En attente",
+            "created_at": iso_to_local(item.get("created_at")),
+            "closed_at": iso_to_local(item.get("closed_at")),
+        }
+
+    active = [row_for(item) for item in store.get("channels", {}).values()]
+    history = [row_for(item) for item in reversed(store.get("history", [])[-50:])]
+    stats = {
+        "active": len(active),
+        "completed": sum(1 for item in history if item["status"] == "closed"),
+        "disputes": sum(1 for item in active if item["status"] == "dispute") + sum(
+            1 for item in store.get("history", []) if item.get("final_status") == "dispute"
+        ),
+    }
+    return active, history, stats
 
 
 def invite_stats_for(guild: Any | None) -> dict[str, int]:
@@ -1498,6 +1536,19 @@ def sales_page():
         sales_stats=sales_stats_for(guild),
         crm_stats=sales_crm_stats_for(guild),
         **panel_context("sales"),
+    )
+
+
+@app.route("/middleman")
+@login_required
+def middleman_page():
+    active, history, stats = middleman_rows_for(selected_guild())
+    return render_template(
+        "middleman_panel.html",
+        active_exchanges=active,
+        history_exchanges=history,
+        middleman_stats=stats,
+        **panel_context("middleman"),
     )
 
 
