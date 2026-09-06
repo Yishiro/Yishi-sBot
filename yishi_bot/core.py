@@ -462,6 +462,20 @@ class YishiBot(commands.Bot):
         counts = self.get_invite_store(guild_id)["weekly_counts"]
         return int(counts.get(str(user_id), 0))
 
+    async def adjust_member_invites(self, member: discord.Member, amount: int) -> tuple[int, int]:
+        """Apply a staff correction while keeping invite-derived roles in sync."""
+        store = self.get_invite_store(member.guild.id)
+        key = str(member.id)
+        counts = store["counts"]
+        weekly_counts = store["weekly_counts"]
+        counts[key] = max(0, int(counts.get(key, 0)) + amount)
+        weekly_counts[key] = max(0, int(weekly_counts.get(key, 0)) + amount)
+        self.save_invites()
+
+        await self.sync_member_invite_roles(member)
+        await self.sync_member_free_access(member)
+        return counts[key], weekly_counts[key]
+
     def get_invite_role_count_from_now(self, guild_id: int, user_id: int) -> int:
         store = self.get_invite_store(guild_id)
         key = str(user_id)

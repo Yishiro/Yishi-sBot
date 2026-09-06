@@ -245,6 +245,52 @@ class ConfigurationCog(commands.Cog):
         await self.bot.sync_all_free_access_roles(interaction.guild)
         await interaction.followup.send("Accès free mis à jour.", ephemeral=True)
 
+    @app_commands.command(name="invites_add", description="Ajoute des invitations à un membre")
+    @app_commands.describe(membre="Membre cible", quantite="Nombre d'invitations à ajouter")
+    @app_commands.default_permissions(manage_guild=True)
+    async def invites_add(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 1000],
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        if not self.bot.can_close_tickets(interaction.user):  # type: ignore[arg-type]
+            await interaction.response.send_message("Commande réservée aux modérateurs et supérieurs.", ephemeral=True)
+            return
+
+        total, weekly = await self.bot.adjust_member_invites(membre, int(quantite))
+        await interaction.response.send_message(
+            f"{quantite} invitation(s) ajoutée(s) à {membre.mention}. "
+            f"Total : {total} • Cette semaine : {weekly}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="invites_remove", description="Retire des invitations à un membre")
+    @app_commands.describe(membre="Membre cible", quantite="Nombre d'invitations à retirer")
+    @app_commands.default_permissions(manage_guild=True)
+    async def invites_remove(
+        self,
+        interaction: discord.Interaction,
+        membre: discord.Member,
+        quantite: app_commands.Range[int, 1, 1000],
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        if not self.bot.can_close_tickets(interaction.user):  # type: ignore[arg-type]
+            await interaction.response.send_message("Commande réservée aux modérateurs et supérieurs.", ephemeral=True)
+            return
+
+        total, weekly = await self.bot.adjust_member_invites(membre, -int(quantite))
+        await interaction.response.send_message(
+            f"{quantite} invitation(s) retirée(s) à {membre.mention}. "
+            f"Total : {total} • Cette semaine : {weekly}.",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="config_role_staff", description="Définit le rôle staff pour les tickets ouverts")
     @app_commands.describe(role="Rôle staff")
     @app_commands.default_permissions(manage_guild=True)
