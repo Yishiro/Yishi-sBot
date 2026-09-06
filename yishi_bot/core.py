@@ -3071,6 +3071,75 @@ class YishiBot(commands.Bot):
             except discord.HTTPException:
                 continue
 
+    async def ensure_invite_leaderboard_channel(self, guild: discord.Guild) -> discord.TextChannel:
+        config = self.get_guild_config(guild.id)
+        channel = guild.get_channel(config.get("invite_leaderboard_channel_id"))
+        if not isinstance(channel, discord.TextChannel):
+            channel = discord.utils.get(guild.text_channels, name=INVITE_LEADERBOARD_CHANNEL_NAME)
+        if channel is None:
+            category = discord.utils.get(guild.categories, name="✦ COMMUNAUTÉ")
+            if category is None:
+                category = await guild.create_category("✦ COMMUNAUTÉ", reason="Classement invitations automatique")
+            channel = await guild.create_text_channel(
+                INVITE_LEADERBOARD_CHANNEL_NAME,
+                category=category,
+                reason="Classement invitations automatique",
+            )
+        await channel.set_permissions(guild.default_role, send_messages=False, add_reactions=False)
+        config["invite_leaderboard_channel_id"] = channel.id
+        self.save_config()
+        return channel
+
+    def build_weekly_invite_leaderboard_embed(self, guild: discord.Guild, *, final: bool = False) -> discord.Embed:
+        store = self.get_invite_store(guild.id)
+        rows: list[tuple[discord.Member, int]] = []
+        for member_id, count in store.get("weekly_counts", {}).items():
+            member = guild.get_member(int(member_id))
+            if member is not None and not member.bot and int(count) > 0:
+                rows.append((member, int(count)))
+        rows.sort(key=lambda row: row[1], reverse=True)
+        title = "Résultat final - Top invitations" if final else "Top invitations de la semaine"
+        description = "Voici le classement final : les 3 premiers peuvent être récompensés par le staff." if final else "Invite des membres pour monter au classement. Le Top 3 sera récompensé chaque dimanche."
+        embed = discord.Embed(title=title, description=description, color=discord.Color.gold())
+        medals = ("🥇", "🥈", "🥉")
+        if rows:
+            lines = [f"{medals[index] if index < 3 else f'#{index + 1}'} {member.mention} - **{count}** invitation(s)" for index, (member, count) in enumerate(rows[:10])]
+            embed.add_field(name="Classement", value="\n".join(lines), inline=False)
+        else:
+            embed.add_field(name="Classement", value="Aucune invitation comptabilisée pour le moment.", inline=False)
+        if final:
+            week = self.utcnow().astimezone(self.paris_tz).strftime("Semaine %V - %Y")
+            embed.set_footer(text=f"{week} - Reset dimanche à 23h59")
+        else:
+            embed.set_footer(text="Actualisé chaque jour à midi - Invitations de la semaine en cours")
+        return embed
+
+    async def process_invite_leaderboard_posts(self) -> None:
+        now_paris = self.utcnow().astimezone(self.paris_tz)
+        if now_paris.hour != 12 or now_paris.minute != 0:
+            return
+        day_key = now_paris.strftime("%Y-%m-%d")
+        week_key = now_paris.strftime("%G-W%V")
+        for guild in self.guilds:
+            config = self.get_guild_config(guild.id)
+            try:
+                channel = await self.ensure_invite_leaderboard_channel(guild)
+            except (discord.Forbidden, discord.HTTPException):
+                continue
+            if now_paris.weekday() == 6 and config.get("last_weekly_invite_final_key") != week_key:
+                await channel.send(embed=self.build_weekly_invite_leaderboard_embed(guild, final=True))
+                config["last_weekly_invite_final_key"] = week_key
+                self.save_config()
+            if config.get("last_invite_leaderboard_day") != day_key:
+                await self.replace_scheduled_bot_message(
+                    guild,
+                    channel,
+                    "daily_invite_leaderboard",
+                    embed=self.build_weekly_invite_leaderboard_embed(guild),
+                )
+                config["last_invite_leaderboard_day"] = day_key
+                self.save_config()
+
     async def process_ticket_recalls(self) -> None:
         now = self.utcnow()
         for guild in self.guilds:
@@ -3321,6 +3390,7 @@ class YishiBot(commands.Bot):
                 await self.process_sale_recalls()
                 await self.process_sale_expirations()
                 await self.process_middleman_recalls()
+                await self.process_invite_leaderboard_posts()
                 await self.process_weekly_promotions()
                 await self.process_weekly_free_access_reset()
                 await self.process_daily_scheduled_posts()
@@ -4503,6 +4573,20 @@ class YishiBot(commands.Bot):
     async def sync_guild_commands(self, guild: discord.Guild) -> None:
         await self.ensure_ticket_config(guild)
         await self.ensure_middleman_config(guild)
+        invite_leaderboard_channel = await self.ensure_invite_leaderboard_channel(guild)
+        config = self.get_guild_config(guild.id)
+        scheduled_ids = config.setdefault("scheduled_message_ids", {})
+        current_leaderboard = await self.fetch_managed_message(
+            invite_leaderboard_channel,
+            scheduled_ids.get("daily_invite_leaderboard"),
+        )
+        if current_leaderboard is None:
+            await self.replace_scheduled_bot_message(
+                guild,
+                invite_leaderboard_channel,
+                "daily_invite_leaderboard",
+                embed=self.build_weekly_invite_leaderboard_embed(guild),
+            )
         await self.cache_invites(guild)
         self.initialize_invite_role_baseline(guild.id)
         await self.sync_all_invite_roles(guild)
