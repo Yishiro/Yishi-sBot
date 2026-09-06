@@ -2015,6 +2015,9 @@ def invites_page():
         elif action == "post_free":
             service = request.form.get("service", "").strip().lower()
             content = request.form.get("content", "").strip()
+            if service not in {"netflix", "crunchyroll"}:
+                flash("Service free invalide.", "error")
+                return redirect(url_for("invites_page", guild_id=guild.id))
             key = "free_netflix_channel_id" if service == "netflix" else "free_crunchyroll_channel_id"
             channel = guild.get_channel(config.get(key))
             if not isinstance(channel, discord.TextChannel):
@@ -2023,14 +2026,31 @@ def invites_page():
                 flash("Contenu vide.", "error")
             else:
                 color = discord.Color.red() if service == "netflix" else discord.Color.orange()
+                count_key = f"free_{service}_post_count"
+                post_number = int(config.get(count_key, 0)) + 1
                 async def _post_free() -> None:
                     embed = discord.Embed(
-                        title=f"{service.title()} Free",
+                        title=f"{service.title()} Free • Compte #{post_number}",
                         description=content,
                         color=color,
                     )
                     embed.set_footer(text="Publie via owner panel")
                     await channel.send(embed=embed)
+                    if service == "crunchyroll":
+                        instructions_embed = discord.Embed(
+                            title="📋 Instructions de connexion",
+                            description=(
+                                "**1** Change the URL to `https://www.crunchyroll.com/fail`\n"
+                                "**2** Then change it again to `https://www.crunchyroll.com/error`\n"
+                                "**3** Click on your **profile**, then **settings**\n"
+                                "**4** You're done — enjoy your account."
+                            ),
+                            color=discord.Color.gold(),
+                        )
+                        instructions_embed.set_footer(text="Yishi's Shop • Crunchyroll Free")
+                        await channel.send(embed=instructions_embed)
+                    config[count_key] = post_number
+                    bot.save_config()
                 ok, message = run_bot_coroutine(_post_free(), timeout=60)
                 flash("Publication envoyee." if ok else f"Echec: {message}", "success" if ok else "error")
         elif action == "post_crunchyroll_account":
@@ -2042,9 +2062,10 @@ def invites_page():
             elif not username or not password:
                 flash("L'identifiant et le mot de passe sont obligatoires.", "error")
             else:
+                post_number = int(config.get("free_crunchyroll_post_count", 0)) + 1
                 async def _post_crunchyroll_account() -> None:
                     account_embed = discord.Embed(
-                        title="🍿 Crunchyroll Free",
+                        title=f"🍿 Crunchyroll Free • Compte #{post_number}",
                         description="Voici les identifiants du compte temporaire.",
                         color=discord.Color.orange(),
                     )
@@ -2065,6 +2086,8 @@ def invites_page():
                     instructions_embed.set_footer(text="Yishi's Shop • Crunchyroll Free")
                     await channel.send(embed=account_embed)
                     await channel.send(embed=instructions_embed)
+                    config["free_crunchyroll_post_count"] = post_number
+                    bot.save_config()
 
                 ok, message = run_bot_coroutine(_post_crunchyroll_account(), timeout=60)
                 flash(

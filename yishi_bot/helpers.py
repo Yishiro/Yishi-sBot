@@ -90,6 +90,8 @@ def default_config() -> dict[str, Any]:
         "shop_message_id": None,
         "free_netflix_message_id": None,
         "free_crunchyroll_message_id": None,
+        "free_netflix_post_count": 0,
+        "free_crunchyroll_post_count": 0,
         "ticket_panel_message_id": None,
         "rules_role_id": None,
         "rules_text_message_id": None,

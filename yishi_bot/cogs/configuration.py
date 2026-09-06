@@ -192,13 +192,30 @@ class ConfigurationCog(commands.Cog):
             return
 
         color = discord.Color.red() if service == "netflix" else discord.Color.orange()
+        count_key = f"free_{service}_post_count"
+        post_number = int(config.get(count_key, 0)) + 1
         embed = discord.Embed(
-            title=f"{service.title()} Free",
+            title=f"{service.title()} Free • Compte #{post_number}",
             description=contenu,
             color=color,
         )
         embed.set_footer(text=f"Publié par {interaction.user.display_name}")
         await channel.send(embed=embed)
+        if service == "crunchyroll":
+            instructions_embed = discord.Embed(
+                title="📋 Instructions de connexion",
+                description=(
+                    "**1** Change the URL to `https://www.crunchyroll.com/fail`\n"
+                    "**2** Then change it again to `https://www.crunchyroll.com/error`\n"
+                    "**3** Click on your **profile**, then **settings**\n"
+                    "**4** You're done — enjoy your account."
+                ),
+                color=discord.Color.gold(),
+            )
+            instructions_embed.set_footer(text="Yishi's Shop • Crunchyroll Free")
+            await channel.send(embed=instructions_embed)
+        config[count_key] = post_number
+        self.bot.save_config()
         await interaction.response.send_message(f"Publication envoyée dans {channel.mention}.", ephemeral=True)
 
     @app_commands.command(name="free_status", description="Affiche le statut weekly free d'un membre")
