@@ -66,6 +66,13 @@ MIDDLEMAN_STATUS_LABELS = {
     "closed": "Clôturé",
 }
 
+LEVEL_GACHA_REWARDS = {
+    5: ("basic", 1),
+    12: ("advanced", 1),
+    20: ("deluxe", 1),
+    35: ("deluxe", 2),
+}
+
 class YishiBot(commands.Bot):
     def __init__(self) -> None:
         intents = discord.Intents.default()
@@ -94,6 +101,8 @@ class YishiBot(commands.Bot):
         self.pending_ticket_creations: set[tuple[int, int]] = set()
         self.pending_gacha_spins: set[tuple[int, int]] = set()
         self.message_xp_cooldowns: dict[tuple[int, int], datetime] = {}
+        self.message_rate_windows: dict[tuple[int, int], list[datetime]] = {}
+        self.raid_join_windows: dict[int, list[datetime]] = {}
         self.background_task: asyncio.Task | None = None
         try:
             self.paris_tz = ZoneInfo("Europe/Paris")
@@ -383,7 +392,7 @@ class YishiBot(commands.Bot):
     def get_sale_store(self, guild_id: int) -> dict[str, Any]:
         key = str(guild_id)
         if key not in self.sale_data:
-            self.sale_data[key] = {"messages": {}, "channels": {}, "reviews": {}, "middleman": {"channels": {}, "history": [], "next_number": 1}}
+            self.sale_data[key] = {"messages": {}, "channels": {}, "reviews": {}, "history": [], "middleman": {"channels": {}, "history": [], "next_number": 1}}
             self.save_sales()
         else:
             store = self.sale_data[key]
@@ -392,6 +401,9 @@ class YishiBot(commands.Bot):
                 if field not in store or not isinstance(store[field], dict):
                     store[field] = {}
                     changed = True
+            if "history" not in store or not isinstance(store["history"], list):
+                store["history"] = []
+                changed = True
             for channel_id, value in list(store["channels"].items()):
                 if isinstance(value, str):
                     store["channels"][channel_id] = {
@@ -616,6 +628,7 @@ class YishiBot(commands.Bot):
         after_level = self.get_level_from_xp(int(entry.get("xp", 0)))
         await self.sync_member_xp_role(member)
         if after_level > before_level:
+            await self.grant_level_rewards(member, before_level, after_level)
             await self.log_event(
                 member.guild,
                 "Niveau gagné",
@@ -623,6 +636,33 @@ class YishiBot(commands.Bot):
                 discord.Color.blurple(),
                 thumbnail_url=member.display_avatar.url,
             )
+
+    async def grant_level_rewards(self, member: discord.Member, before_level: int, after_level: int) -> None:
+        entry = self.get_member_level_entry(member.guild.id, member.id)
+        rewarded_levels = {int(level) for level in entry.setdefault("rewarded_levels", [])}
+        rewards: list[str] = []
+        for level, (spin_type, quantity) in LEVEL_GACHA_REWARDS.items():
+            if not before_level < level <= after_level or level in rewarded_levels:
+                continue
+            total = self.add_gacha_spins(member.id, spin_type, quantity)
+            self.record_spin_adjustment(
+                member.id,
+                member.display_name,
+                self.user.id if self.user is not None else 0,
+                self.user.name if self.user is not None else "Yishi's Bot",
+                spin_type,
+                quantity,
+                "auto_level_reward",
+                f"Récompense automatique niveau {level}",
+                total,
+            )
+            rewarded_levels.add(level)
+            rewards.append(f"{quantity} {spin_type.title()} Spin(s)")
+        entry["rewarded_levels"] = sorted(rewarded_levels)
+        self.save_levels()
+        if rewards:
+            with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                await member.send(f"🎁 Récompense de niveau débloquée : **{', '.join(rewards)}**.")
 
     async def set_member_level(self, member: discord.Member, level: int) -> dict[str, Any]:
         target_level = max(0, int(level))
@@ -652,6 +692,44 @@ class YishiBot(commands.Bot):
             return
         self.message_xp_cooldowns[key] = now
         await self.add_member_xp(message.author, 20, count_message=True)
+
+    def should_block_link(self, member: discord.Member) -> bool:
+        return bool(self.get_guild_config(member.guild.id).get("anti_links_enabled", True)) and not self.is_staff_member(member)
+
+    def is_message_spam(self, message: discord.Message) -> bool:
+        if not isinstance(message.author, discord.Member) or self.is_staff_member(message.author):
+            return False
+        config = self.get_guild_config(message.guild.id)
+        if not config.get("anti_spam_enabled", True):
+            return False
+        limit = max(3, int(config.get("anti_spam_message_limit", 6)))
+        window_seconds = max(3, int(config.get("anti_spam_window_seconds", 8)))
+        key = (message.guild.id, message.author.id)
+        now = self.utcnow()
+        window = [stamp for stamp in self.message_rate_windows.get(key, []) if now - stamp < timedelta(seconds=window_seconds)]
+        window.append(now)
+        self.message_rate_windows[key] = window
+        return len(window) >= limit
+
+    async def is_raid_join(self, member: discord.Member) -> bool:
+        if self.is_staff_member(member):
+            return False
+        config = self.get_guild_config(member.guild.id)
+        if not config.get("anti_raid_enabled", True):
+            return False
+        now = self.utcnow()
+        window_seconds = max(10, int(config.get("anti_raid_window_seconds", 30)))
+        limit = max(3, int(config.get("anti_raid_join_limit", 8)))
+        joins = [stamp for stamp in self.raid_join_windows.get(member.guild.id, []) if now - stamp < timedelta(seconds=window_seconds)]
+        joins.append(now)
+        self.raid_join_windows[member.guild.id] = joins
+        if len(joins) < limit:
+            return False
+        try:
+            await member.timeout(timedelta(minutes=max(1, int(config.get("anti_raid_timeout_minutes", 10)))), reason="Protection anti-raid automatique")
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        return True
 
     def get_level_ranking(self, guild_id: int) -> list[tuple[int, int]]:
         members = self.get_level_store(guild_id)["members"]
@@ -1267,6 +1345,12 @@ class YishiBot(commands.Bot):
             return
         if str(channel_id) in self.get_sale_store(guild_id)["channels"]:
             self.mark_sale_activity(guild_id, channel_id)
+            return
+        exchange = self.get_middleman_exchange(guild_id, channel_id)
+        if exchange is not None:
+            exchange["updated_at"] = self.iso_now()
+            exchange["recall_sent_at"] = None
+            self.save_sales()
 
     def get_promo_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
         config = self.get_guild_config(guild.id)
@@ -2488,6 +2572,7 @@ class YishiBot(commands.Bot):
             review_message = None
 
         sale["status"] = "available"
+        sale["approved_at"] = self.iso_now()
         public_message = await sales_channel.send(embed=self.build_sale_embed(sale), view=SaleListingView(self))
         sale["public_message_id"] = public_message.id
         store["messages"][str(public_message.id)] = sale
@@ -3068,6 +3153,60 @@ class YishiBot(commands.Bot):
             self.save_invites()
             await self.sync_all_free_access_roles(guild)
 
+    async def process_sale_expirations(self) -> None:
+        now = self.utcnow()
+        for guild in self.guilds:
+            expiration_hours = max(24, int(self.get_guild_config(guild.id).get("sale_expiration_hours", 168)))
+            store = self.get_sale_store(guild.id)
+            sales_channel = self.get_sales_channel(guild)
+            expired: list[tuple[str, dict[str, Any]]] = []
+            for message_id, sale in list(store["messages"].items()):
+                if sale.get("status") != "available":
+                    continue
+                created_at = self.parse_iso_datetime(sale.get("approved_at") or sale.get("created_at"))
+                if created_at is not None and now - created_at >= timedelta(hours=expiration_hours):
+                    expired.append((message_id, sale))
+            for message_id, sale in expired:
+                if isinstance(sales_channel, discord.TextChannel):
+                    with contextlib.suppress(discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                        await (await sales_channel.fetch_message(int(message_id))).delete()
+                sale["status"] = "expired"
+                sale["expired_at"] = self.iso_now()
+                store["history"].append(sale)
+                store["messages"].pop(message_id, None)
+                seller = guild.get_member(int(sale.get("seller_id", 0)))
+                if seller is not None:
+                    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                        await seller.send(f"Ta vente **{sale.get('product', 'inconnue')}** a expiré après {expiration_hours} h sans réservation.")
+                await self.log_event(guild, "Vente expirée", f"La vente **{sale.get('product', 'inconnue')}** a expiré automatiquement.", discord.Color.dark_grey())
+            if expired:
+                store["history"] = store["history"][-300:]
+                self.save_sales()
+
+    async def process_middleman_recalls(self) -> None:
+        now = self.utcnow()
+        for guild in self.guilds:
+            recall_hours = max(1, int(self.get_guild_config(guild.id).get("middleman_recall_hours", 24)))
+            store = self.get_middleman_store(guild.id)
+            changed = False
+            for channel_id, exchange in store["channels"].items():
+                channel = guild.get_channel(int(channel_id))
+                if not isinstance(channel, discord.TextChannel):
+                    continue
+                last_activity = self.parse_iso_datetime(exchange.get("updated_at")) or channel.created_at
+                recalled_at = self.parse_iso_datetime(exchange.get("recall_sent_at"))
+                if now - last_activity < timedelta(hours=recall_hours) or (recalled_at is not None and recalled_at >= last_activity):
+                    continue
+                mentions = [f"<@{exchange['requester_id']}>", f"<@{exchange['partner_id']}>" ]
+                if exchange.get("middleman_id"):
+                    mentions.append(f"<@{exchange['middleman_id']}>")
+                with contextlib.suppress(discord.HTTPException):
+                    await channel.send(f"{' '.join(mentions)} rappel automatique : cet échange Middleman est inactif depuis plus de {recall_hours} h.")
+                    exchange["recall_sent_at"] = self.iso_now()
+                    changed = True
+            if changed:
+                self.save_sales()
+
     def get_daily_level_channel_id(self, guild_id: int) -> int:
         config = self.get_guild_config(guild_id)
         return int(config.get("daily_level_channel_id") or DEFAULT_DAILY_LEVEL_CHANNEL_ID)
@@ -3180,6 +3319,8 @@ class YishiBot(commands.Bot):
             try:
                 await self.process_ticket_recalls()
                 await self.process_sale_recalls()
+                await self.process_sale_expirations()
+                await self.process_middleman_recalls()
                 await self.process_weekly_promotions()
                 await self.process_weekly_free_access_reset()
                 await self.process_daily_scheduled_posts()
@@ -4085,6 +4226,14 @@ class YishiBot(commands.Bot):
             )
             return
 
+        if isinstance(interaction.user, discord.Member) and not self.is_giveaway_member_eligible(giveaway, interaction.user):
+            required_role = interaction.guild.get_role(int(giveaway["required_role_id"]))
+            await interaction.response.send_message(
+                f"Tu dois avoir le rôle {required_role.mention if required_role is not None else 'requis'} pour participer.",
+                ephemeral=True,
+            )
+            return
+
         user_id = interaction.user.id
         participants = giveaway.setdefault("participants", [])
         if user_id in participants:
@@ -4109,7 +4258,8 @@ class YishiBot(commands.Bot):
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("Impossible d'afficher tes chances ici.", ephemeral=True)
             return
-        weight = get_member_giveaway_weight(interaction.user)
+        giveaway = self.get_giveaway_entries(interaction.guild.id).get(str(interaction.message.id)) if interaction.message else None
+        weight = self.get_giveaway_member_weight(giveaway or {}, interaction.user)
         bonus_roles = [role.name for role in interaction.user.roles if role.name in INVITE_ROLE_WEIGHTS]
         best_role = max(bonus_roles, key=lambda role_name: INVITE_ROLE_WEIGHTS[role_name]) if bonus_roles else None
         parts = [f"Chance totale : **x{weight:g}**"]
@@ -4117,7 +4267,27 @@ class YishiBot(commands.Bot):
             parts.append(f"Rôle invitations pris en compte : **{best_role}**")
         if interaction.user.premium_since is not None or discord.utils.get(interaction.user.roles, name="Server Booster"):
             parts.append("Bonus Server Booster : **+1**")
+        if giveaway and giveaway.get("bonus_role_id"):
+            bonus_role = interaction.guild.get_role(int(giveaway["bonus_role_id"]))
+            if bonus_role is not None and bonus_role in interaction.user.roles:
+                parts.append(f"Bonus {bonus_role.name} : **x{float(giveaway.get('bonus_multiplier', 1)):g}**")
         await interaction.response.send_message("\n".join(parts), ephemeral=True)
+
+    def is_giveaway_member_eligible(self, giveaway: dict[str, Any], member: discord.Member) -> bool:
+        required_role_id = giveaway.get("required_role_id")
+        if not required_role_id:
+            return True
+        role = member.guild.get_role(int(required_role_id))
+        return role is not None and role in member.roles
+
+    def get_giveaway_member_weight(self, giveaway: dict[str, Any], member: discord.Member) -> float:
+        weight = get_member_giveaway_weight(member)
+        bonus_role_id = giveaway.get("bonus_role_id")
+        if bonus_role_id:
+            role = member.guild.get_role(int(bonus_role_id))
+            if role is not None and role in member.roles:
+                weight *= max(1.0, float(giveaway.get("bonus_multiplier", 1)))
+        return weight
 
     async def show_giveaway_remaining_time(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or interaction.message is None:
@@ -4204,6 +4374,7 @@ class YishiBot(commands.Bot):
         participant_ids: list[int],
         winners_count: int,
         excluded: set[int] | None = None,
+        giveaway: dict[str, Any] | None = None,
     ) -> list[int]:
         pool: list[tuple[int, float]] = []
         excluded = excluded or set()
@@ -4219,7 +4390,9 @@ class YishiBot(commands.Bot):
                     member = None
             if member is None:
                 continue
-            pool.append((user_id, get_member_giveaway_weight(member)))
+            if giveaway is not None and not self.is_giveaway_member_eligible(giveaway, member):
+                continue
+            pool.append((user_id, self.get_giveaway_member_weight(giveaway or {}, member)))
 
         winners: list[int] = []
         for _ in range(min(winners_count, len(pool))):
@@ -4275,6 +4448,7 @@ class YishiBot(commands.Bot):
             eligible_participant_ids,
             remaining_slots,
             excluded=set(winners),
+            giveaway=giveaway,
         )
         winners.extend(extra_winners)
 
@@ -4320,6 +4494,7 @@ class YishiBot(commands.Bot):
             participant_ids,
             int(giveaway["winners_count"]),
             excluded=previous_winners,
+            giveaway=giveaway,
         )
         giveaway["winners"] = winners
         self.save_giveaways()

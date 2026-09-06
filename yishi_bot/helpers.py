@@ -99,6 +99,16 @@ def default_config() -> dict[str, Any]:
         "auto_level_message_enabled": True,
         "auto_sales_rules_enabled": True,
         "daily_level_message": "",
+        "anti_links_enabled": True,
+        "anti_spam_enabled": True,
+        "anti_raid_enabled": True,
+        "anti_spam_message_limit": 6,
+        "anti_spam_window_seconds": 8,
+        "anti_raid_join_limit": 8,
+        "anti_raid_window_seconds": 30,
+        "anti_raid_timeout_minutes": 10,
+        "sale_expiration_hours": 168,
+        "middleman_recall_hours": 24,
     }
 
 def can_moderate(

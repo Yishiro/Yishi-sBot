@@ -41,6 +41,29 @@
 <section class="panel-section">
   <div class="section-head">
     <div>
+      <h2>Protections Discord</h2>
+      <p>Le staff est exempté. L'anti-raid applique un timeout temporaire aux nouvelles arrivées pendant un afflux suspect.</p>
+    </div>
+  </div>
+  <form method="post" class="form-grid form-grid-double">
+    <input type="hidden" name="action" value="save_protection">
+    <label class="toggle-row"><input type="checkbox" name="anti_links_enabled" {% if protection_config.anti_links_enabled %}checked{% endif %}><span>Anti-liens</span></label>
+    <label class="toggle-row"><input type="checkbox" name="anti_spam_enabled" {% if protection_config.anti_spam_enabled %}checked{% endif %}><span>Anti-spam</span></label>
+    <label class="toggle-row"><input type="checkbox" name="anti_raid_enabled" {% if protection_config.anti_raid_enabled %}checked{% endif %}><span>Anti-raid</span></label>
+    <label><span>Messages anti-spam</span><input type="number" name="anti_spam_message_limit" min="3" max="20" value="{{ protection_config.anti_spam_message_limit }}"></label>
+    <label><span>Fenêtre anti-spam (secondes)</span><input type="number" name="anti_spam_window_seconds" min="3" max="120" value="{{ protection_config.anti_spam_window_seconds }}"></label>
+    <label><span>Connexions anti-raid</span><input type="number" name="anti_raid_join_limit" min="3" max="50" value="{{ protection_config.anti_raid_join_limit }}"></label>
+    <label><span>Fenêtre anti-raid (secondes)</span><input type="number" name="anti_raid_window_seconds" min="10" max="300" value="{{ protection_config.anti_raid_window_seconds }}"></label>
+    <label><span>Timeout anti-raid (minutes)</span><input type="number" name="anti_raid_timeout_minutes" min="1" max="1440" value="{{ protection_config.anti_raid_timeout_minutes }}"></label>
+    <label><span>Expiration vente (heures)</span><input type="number" name="sale_expiration_hours" min="24" max="8760" value="{{ protection_config.sale_expiration_hours }}"></label>
+    <label><span>Rappel Middleman (heures)</span><input type="number" name="middleman_recall_hours" min="1" max="720" value="{{ protection_config.middleman_recall_hours }}"></label>
+    <button type="submit" class="button">Enregistrer les protections</button>
+  </form>
+</section>
+
+<section class="panel-section">
+  <div class="section-head">
+    <div>
       <h2>Identite panel</h2>
       <p>Infos utiles quand tu controles plusieurs machines ou plusieurs bots.</p>
     </div>

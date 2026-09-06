@@ -102,6 +102,80 @@ class GeneralCog(commands.Cog):
     async def ping(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(f"Pong ! {round(self.bot.latency * 1000)} ms")
 
+    @app_commands.command(name="leaderboard", description="Affiche un classement du serveur")
+    @app_commands.describe(classement="XP, invitations ou points staff")
+    async def leaderboard(
+        self,
+        interaction: discord.Interaction,
+        classement: Literal["xp", "invites", "staff"] = "xp",
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        guild = interaction.guild
+        rows: list[tuple[str, int]] = []
+        if classement == "xp":
+            for member_id, xp in self.bot.get_level_ranking(guild.id):
+                member = guild.get_member(member_id)
+                if member is not None and not member.bot:
+                    rows.append((member.display_name, xp))
+            title, suffix = "🏆 Classement XP", "XP"
+        elif classement == "invites":
+            for member_id, total in self.bot.get_invite_store(guild.id).get("counts", {}).items():
+                member = guild.get_member(int(member_id))
+                if member is not None and not member.bot:
+                    rows.append((member.display_name, int(total)))
+            rows.sort(key=lambda row: row[1], reverse=True)
+            title, suffix = "🤝 Classement invitations", "invitations"
+        else:
+            if not self.bot.is_staff_member(interaction.user):  # type: ignore[arg-type]
+                await interaction.response.send_message("Le classement staff est réservé au staff.", ephemeral=True)
+                return
+            for member_id, points in self.bot.get_ticket_store(guild.id).get("staff_points", {}).items():
+                member = guild.get_member(int(member_id))
+                if member is not None and not member.bot:
+                    rows.append((member.display_name, int(points)))
+            rows.sort(key=lambda row: row[1], reverse=True)
+            title, suffix = "🛡️ Classement staff", "points"
+
+        if not rows:
+            await interaction.response.send_message("Aucune donnée disponible pour ce classement.", ephemeral=True)
+            return
+        medals = ("🥇", "🥈", "🥉")
+        lines = [f"{medals[index] if index < 3 else f'`#{index + 1}`'} **{name}** - {value:,} {suffix}" for index, (name, value) in enumerate(rows[:10])]
+        embed = discord.Embed(title=title, description="\n".join(lines), color=discord.Color.gold())
+        embed.set_footer(text="Yishi's Shop • Top 10")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="diagnostic", description="Vérifie la santé et la configuration du bot")
+    @app_commands.default_permissions(manage_guild=True)
+    async def diagnostic(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("Commande indisponible ici.", ephemeral=True)
+            return
+        if not self.bot.is_staff_member(interaction.user):  # type: ignore[arg-type]
+            await interaction.response.send_message("Commande réservée au staff.", ephemeral=True)
+            return
+        guild = interaction.guild
+        config = self.bot.get_guild_config(guild.id)
+        bot_member = guild.me or (guild.get_member(self.bot.user.id) if self.bot.user else None)
+        missing = [label for key, label in (("logs_channel_id", "salon logs"), ("sales_channel_id", "salon ventes"), ("sales_review_channel_id", "salon validation ventes"), ("giveaways_channel_id", "salon giveaways")) if not config.get(key)]
+        permissions = bot_member.guild_permissions if bot_member is not None else None
+        required = ("manage_roles", "manage_channels", "manage_messages", "send_messages", "read_message_history")
+        denied = [permission.replace("_", " ") for permission in required if permissions is None or not getattr(permissions, permission, False)]
+        checks = [
+            ("Connexion Discord", "OK" if not self.bot.is_closed() else "Hors ligne"),
+            ("Latence", f"{round(self.bot.latency * 1000)} ms"),
+            ("Tâches automatiques", "Actives" if self.bot.background_task and not self.bot.background_task.done() else "À vérifier"),
+            ("Configuration", "OK" if not missing else "Manquant : " + ", ".join(missing)),
+            ("Permissions bot", "OK" if not denied else "Manquant : " + ", ".join(denied)),
+        ]
+        embed = discord.Embed(title="🩺 Diagnostic Yishi's Bot", color=discord.Color.green() if not missing and not denied else discord.Color.orange())
+        for name, value in checks:
+            embed.add_field(name=name, value=value, inline=False)
+        embed.set_footer(text="Les problèmes de permissions se règlent dans les rôles Discord.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="paiement", description="Affiche les moyens de paiement du shop")
     async def paiement(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(

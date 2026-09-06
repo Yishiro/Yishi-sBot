@@ -2251,11 +2251,38 @@ def security_page():
     guild = selected_guild()
     if bot is None or guild is None:
         flash("Bot ou serveur indisponible.", "error")
-        return render_template("security.html", security={}, quick_actions=[], **panel_context("security"))
+        return render_template("security.html", security={}, quick_actions=[], protection_config={
+            "anti_links_enabled": True, "anti_spam_enabled": True, "anti_raid_enabled": True,
+            "anti_spam_message_limit": 6, "anti_spam_window_seconds": 8,
+            "anti_raid_join_limit": 8, "anti_raid_window_seconds": 30,
+            "anti_raid_timeout_minutes": 10, "sale_expiration_hours": 168,
+            "middleman_recall_hours": 24,
+        }, **panel_context("security"))
 
     if request.method == "POST":
-        category, message = run_quick_action(bot, guild, request.form.get("action", ""))
-        flash(message, category)
+        action = request.form.get("action", "")
+        if action == "save_protection":
+            config = bot.get_guild_config(guild.id)
+            config["anti_links_enabled"] = request.form.get("anti_links_enabled") == "on"
+            config["anti_spam_enabled"] = request.form.get("anti_spam_enabled") == "on"
+            config["anti_raid_enabled"] = request.form.get("anti_raid_enabled") == "on"
+            for key, minimum, maximum in (
+                ("anti_spam_message_limit", 3, 20),
+                ("anti_spam_window_seconds", 3, 120),
+                ("anti_raid_join_limit", 3, 50),
+                ("anti_raid_window_seconds", 10, 300),
+                ("anti_raid_timeout_minutes", 1, 1440),
+                ("sale_expiration_hours", 24, 8760),
+                ("middleman_recall_hours", 1, 720),
+            ):
+                value = parse_int_or_none(request.form.get(key, ""))
+                if value is not None:
+                    config[key] = max(minimum, min(maximum, value))
+            bot.save_config()
+            flash("Protections et automatisations enregistrées.", "success")
+        else:
+            category, message = run_quick_action(bot, guild, action)
+            flash(message, category)
         return redirect(url_for("security_page", guild_id=guild.id))
 
     security = {
@@ -2274,6 +2301,7 @@ def security_page():
         "security.html",
         security=security,
         quick_actions=build_quick_action_items(),
+        protection_config=bot.get_guild_config(guild.id),
         **panel_context("security"),
     )
 

@@ -42,6 +42,9 @@ class GiveawaysCog(commands.Cog):
         prix="Prix du giveaway",
         duree="Exemple : 10m, 2h, 1d",
         gagnants="Nombre de gagnants",
+        role_requis="Rôle obligatoire pour participer",
+        role_bonus="Rôle donnant un multiplicateur",
+        multiplicateur_bonus="Multiplicateur du rôle bonus",
     )
     @app_commands.default_permissions(manage_guild=True)
     async def giveaway_create(
@@ -51,6 +54,9 @@ class GiveawaysCog(commands.Cog):
         prix: str,
         duree: str,
         gagnants: app_commands.Range[int, 1, 20],
+        role_requis: discord.Role | None = None,
+        role_bonus: discord.Role | None = None,
+        multiplicateur_bonus: app_commands.Range[float, 1, 10] = 1,
     ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message(
@@ -79,6 +85,10 @@ class GiveawaysCog(commands.Cog):
             ),
             color=discord.Color.gold(),
         )
+        if role_requis is not None:
+            embed.add_field(name="Rôle requis", value=role_requis.mention, inline=False)
+        if role_bonus is not None and multiplicateur_bonus > 1:
+            embed.add_field(name="Rôle bonus", value=f"{role_bonus.mention} • x{multiplicateur_bonus:g}", inline=False)
         message = await salon.send(embed=embed, view=GiveawayView(self.bot))
 
         store = self.bot.get_giveaway_entries(interaction.guild.id)
@@ -90,6 +100,9 @@ class GiveawaysCog(commands.Cog):
             "participants": [],
             "winners": [],
             "forced_winner_id": None,
+            "required_role_id": role_requis.id if role_requis is not None else None,
+            "bonus_role_id": role_bonus.id if role_bonus is not None else None,
+            "bonus_multiplier": float(multiplicateur_bonus),
             "end_at": end_at,
             "status": "active",
             "created_by": interaction.user.id,

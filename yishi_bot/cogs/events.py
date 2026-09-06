@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -63,6 +64,7 @@ class EventsCog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
         config = self.bot.get_guild_config(member.guild.id)
+        raid_detected = await self.bot.is_raid_join(member)
         welcome_channel = (
             member.guild.get_channel(config["welcome_channel_id"])
             if config["welcome_channel_id"]
@@ -112,6 +114,14 @@ class EventsCog(commands.Cog):
                 ("Compte créé", member.created_at.strftime("%d/%m/%Y %H:%M"), True),
             ],
         )
+        if raid_detected:
+            await self.bot.log_event(
+                member.guild,
+                "🚨 Anti-raid déclenché",
+                f"Un afflux de connexions a été détecté. {member.mention} a reçu un timeout temporaire par précaution.",
+                discord.Color.red(),
+                fields=[("Fenêtre de détection", f"{config.get('anti_raid_window_seconds', 30)} secondes", True)],
+            )
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
@@ -191,7 +201,25 @@ class EventsCog(commands.Cog):
         if message.guild is None or message.author.bot or not isinstance(message.author, discord.Member):
             return
         self.bot.track_managed_channel_activity(message)
-        if LINK_PATTERN.search(message.content):
+        if self.bot.is_message_spam(message):
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                return
+            await self.bot.log_event(
+                message.guild,
+                "🚫 Anti-spam",
+                f"Un message spam de {message.author.mention} a été supprimé dans {message.channel.mention}.",
+                discord.Color.red(),
+                thumbnail_url=message.author.display_avatar.url,
+            )
+            warning = await message.channel.send(f"{message.author.mention}, ralentis un peu avant d'envoyer un nouveau message.")
+            await asyncio.sleep(6)
+            with contextlib.suppress(discord.HTTPException):
+                await warning.delete()
+            return
+
+        if LINK_PATTERN.search(message.content) and self.bot.should_block_link(message.author):
             try:
                 await message.delete()
             except discord.HTTPException:
