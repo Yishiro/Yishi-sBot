@@ -38,8 +38,8 @@
   <article>
     <div class="section-head">
       <div>
-        <h2>Poster un compte free</h2>
-        <p>Publication rapide dans Netflix Free ou Crunchyroll Free.</p>
+        <h2>Poster Netflix Free</h2>
+        <p>Publication rapide dans le salon Netflix Free.</p>
       </div>
     </div>
     <form method="post" class="form-grid">
@@ -48,7 +48,6 @@
         <span>Service</span>
         <select name="service">
           <option value="netflix">Netflix</option>
-          <option value="crunchyroll">Crunchyroll</option>
         </select>
       </label>
       <label>
@@ -56,6 +55,27 @@
         <textarea name="content" placeholder="Identifiants / infos a publier"></textarea>
       </label>
       <button type="submit" class="button">Publier</button>
+    </form>
+  </article>
+
+  <article>
+    <div class="section-head">
+      <div>
+        <h2>Poster Crunchyroll Free</h2>
+        <p>Envoie le compte puis automatiquement les instructions de connexion.</p>
+      </div>
+    </div>
+    <form method="post" class="form-grid" autocomplete="off">
+      <input type="hidden" name="action" value="post_crunchyroll_account">
+      <label>
+        <span>Identifiant ou e-mail</span>
+        <input name="crunchyroll_username" required autocomplete="off" placeholder="exemple@email.com">
+      </label>
+      <label>
+        <span>Mot de passe</span>
+        <input type="password" name="crunchyroll_password" required autocomplete="new-password" placeholder="Mot de passe du compte">
+      </label>
+      <button type="submit" class="button">Envoyer le compte Crunchyroll</button>
     </form>
   </article>
 </section>

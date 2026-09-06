@@ -2033,6 +2033,46 @@ def invites_page():
                     await channel.send(embed=embed)
                 ok, message = run_bot_coroutine(_post_free(), timeout=60)
                 flash("Publication envoyee." if ok else f"Echec: {message}", "success" if ok else "error")
+        elif action == "post_crunchyroll_account":
+            username = request.form.get("crunchyroll_username", "").strip()
+            password = request.form.get("crunchyroll_password", "")
+            channel = guild.get_channel(config.get("free_crunchyroll_channel_id"))
+            if not isinstance(channel, discord.TextChannel):
+                flash("Salon Crunchyroll Free introuvable.", "error")
+            elif not username or not password:
+                flash("L'identifiant et le mot de passe sont obligatoires.", "error")
+            else:
+                async def _post_crunchyroll_account() -> None:
+                    account_embed = discord.Embed(
+                        title="🍿 Crunchyroll Free",
+                        description="Voici les identifiants du compte temporaire.",
+                        color=discord.Color.orange(),
+                    )
+                    account_embed.add_field(name="Identifiant", value=f"`{username}`", inline=False)
+                    account_embed.add_field(name="Mot de passe", value=f"`{password}`", inline=False)
+                    account_embed.set_footer(text="Compte temporaire • Ne modifie aucune information")
+
+                    instructions_embed = discord.Embed(
+                        title="📋 Instructions de connexion",
+                        description=(
+                            "**1** Change the URL to `https://www.crunchyroll.com/fail`\n"
+                            "**2** Then change it again to `https://www.crunchyroll.com/error`\n"
+                            "**3** Click on your **profile**, then **settings**\n"
+                            "**4** You're done — enjoy your account."
+                        ),
+                        color=discord.Color.gold(),
+                    )
+                    instructions_embed.set_footer(text="Yishi's Shop • Crunchyroll Free")
+                    await channel.send(embed=account_embed)
+                    await channel.send(embed=instructions_embed)
+
+                ok, message = run_bot_coroutine(_post_crunchyroll_account(), timeout=60)
+                flash(
+                    "Compte Crunchyroll et instructions envoyes."
+                    if ok
+                    else f"Echec: {message}",
+                    "success" if ok else "error",
+                )
 
         return redirect(url_for("invites_page", guild_id=guild.id))
 
