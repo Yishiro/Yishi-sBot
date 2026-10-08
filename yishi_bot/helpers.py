@@ -94,6 +94,7 @@ def default_config() -> dict[str, Any]:
         "free_netflix_post_count": 0,
         "free_crunchyroll_post_count": 0,
         "ticket_panel_message_id": None,
+        "tickets_temporarily_closed": False,
         "rules_role_id": None,
         "rules_text_message_id": None,
         "rules_message_id": None,

@@ -3075,21 +3075,24 @@ class YishiBot(commands.Bot):
         channel = guild.get_channel(self.get_guild_config(guild.id).get("announcements_channel_id"))
         return channel if isinstance(channel, discord.TextChannel) else None
 
-    def build_relaunch_announcement_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="Yishi's Shop reprend du rythme",
-            description=(
-                "Le serveur passe à une nouvelle étape : plus d'activité, plus de récompenses et un shop mieux organisé.\n\n"
-                "L'objectif est simple : créer une vraie communauté active, avec des événements, des échanges sécurisés et des récompenses pour les membres impliqués."
-            ),
-            color=discord.Color.gold(),
+    def build_relaunch_announcement(self) -> str:
+        return (
+            "# 🚀 Yishi's Shop reprend du rythme\n"
+            "## Une nouvelle étape commence sur le serveur.\n\n"
+            "On veut construire une vraie communauté : plus active, plus sécurisée et avec de vraies récompenses pour les membres qui participent.\n\n"
+            "### ✨ Ce qui arrive maintenant\n"
+            "> 🏆 **Top invitations chaque semaine** : le Top 3 sera annoncé chaque dimanche à midi et pourra recevoir des récompenses.\n"
+            "> 📈 **XP & niveaux** : messages, vocal et activité te font progresser et débloquent des récompenses Gacha.\n"
+            "> 💸 **Ventes sécurisées** : annonces validées par le staff, salons privés et suivi des transactions.\n"
+            "> 🤝 **Middleman officiel** : recommandé pour les échanges entre membres, avec **0 % de frais**.\n\n"
+            "### 🎯 Ton objectif\n"
+            "Invite des amis, participe aux discussions, monte en niveau et viens aux activités du serveur. Plus tu es impliqué, plus tu auras accès aux récompenses et aux opportunités.\n\n"
+            "### 🎮 Activités communautaires\n"
+            "Des mini-activités et événements arriveront chaque **mercredi après-midi**. Les détails seront annoncés la veille, alors surveille `📢・annonces`.\n\n"
+            "### 🛡️ Recrutement staff bientôt\n"
+            "Le recrutement **Helper** et **Modo Test** ouvrira prochainement. Sois actif, respectueux et utile aux membres : c'est la meilleure façon de te faire remarquer.\n\n"
+            "-# Merci à tous ceux qui participent à la relance de Yishi's Shop."
         )
-        embed.add_field(name="Nouveautés", value="Top invitations chaque semaine, XP et récompenses Gacha, ventes avec validation staff, Middleman officiel gratuit (0 %).", inline=False)
-        embed.add_field(name="Top invitations", value="Invite tes amis : le Top 3 hebdomadaire sera annoncé chaque dimanche à midi et pourra recevoir des récompenses.", inline=False)
-        embed.add_field(name="Activités", value="Des mini-activités et événements arrivent chaque mercredi après-midi. Les détails seront annoncés la veille.", inline=False)
-        embed.add_field(name="Recrutement staff", value="Le recrutement Helper / Modo Test ouvrira bientôt. Reste actif, aide les membres et montre que tu es fiable.", inline=False)
-        embed.set_footer(text="Yishi's Shop • Merci à ceux qui participent à la relance")
-        return embed
 
     def build_weekly_objectives_embed(self) -> discord.Embed:
         embed = discord.Embed(title="Nouvelle semaine, nouveaux objectifs", description="Le classement des invitations est relancé. Chaque invitation réelle te rapproche du Top 3 de dimanche.", color=discord.Color.blurple())
@@ -3109,7 +3112,7 @@ class YishiBot(commands.Bot):
         channel = self.get_announcements_channel(guild)
         if channel is None:
             raise RuntimeError("Salon annonces introuvable. Configure-le dans le panel ou avec /setup.")
-        await channel.send(embed=self.build_relaunch_announcement_embed())
+        await channel.send(self.build_relaunch_announcement())
 
     async def process_weekly_community_announcements(self) -> None:
         now_paris = self.utcnow().astimezone(self.paris_tz)
@@ -3845,6 +3848,18 @@ class YishiBot(commands.Bot):
             await interaction.response.send_message("Impossible de cr?er un ticket ici.", ephemeral=True)
             return
 
+        config = self.get_guild_config(guild.id)
+        if config.get("tickets_temporarily_closed", False):
+            await interaction.response.send_message(
+                "# 🔒 Tickets temporairement fermés\n\n"
+                "Les demandes de ticket sont actuellement mises en pause afin que l'équipe puisse traiter les demandes déjà en cours.\n\n"
+                "> ⏳ Les tickets réouvriront prochainement.\n"
+                "> 📢 Toute réouverture sera annoncée dans `📢・annonces`.\n\n"
+                "-# Merci de ne pas contacter les membres du staff en privé pendant cette période.",
+                ephemeral=True,
+            )
+            return
+
         lock_key = (guild.id, user.id)
         if lock_key in self.pending_ticket_creations:
             await interaction.response.send_message(
@@ -3869,7 +3884,6 @@ class YishiBot(commands.Bot):
             )
             return
 
-        config = self.get_guild_config(guild.id)
         helper_role = guild.get_role(config["helper_role_id"]) if config["helper_role_id"] else None
         trial_role = guild.get_role(config["trial_mod_role_id"]) if config["trial_mod_role_id"] else None
 

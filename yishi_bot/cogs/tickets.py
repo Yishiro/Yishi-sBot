@@ -78,6 +78,48 @@ class TicketsCog(commands.Cog):
             return None
         return self.bot.get_ticket_store(interaction.guild.id)["channels"].get(str(interaction.channel.id))
 
+    @staticmethod
+    def is_administrator(interaction: discord.Interaction) -> bool:
+        return isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator
+
+    @app_commands.command(name="tickets_fermer", description="Bloque temporairement les nouvelles ouvertures de tickets")
+    @app_commands.default_permissions(administrator=True)
+    async def tickets_fermer(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or not self.is_administrator(interaction):
+            await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
+            return
+
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if config.get("tickets_temporarily_closed", False):
+            await interaction.response.send_message("Les nouvelles ouvertures de tickets sont déjà fermées.", ephemeral=True)
+            return
+
+        config["tickets_temporarily_closed"] = True
+        self.bot.save_config()
+        await interaction.response.send_message(
+            "🔒 Les nouvelles ouvertures de tickets sont maintenant fermées. Les tickets déjà ouverts restent accessibles.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="tickets_ouvrir", description="Réouvre les nouvelles demandes de tickets")
+    @app_commands.default_permissions(administrator=True)
+    async def tickets_ouvrir(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or not self.is_administrator(interaction):
+            await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
+            return
+
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if not config.get("tickets_temporarily_closed", False):
+            await interaction.response.send_message("Les nouvelles ouvertures de tickets sont déjà ouvertes.", ephemeral=True)
+            return
+
+        config["tickets_temporarily_closed"] = False
+        self.bot.save_config()
+        await interaction.response.send_message(
+            "🔓 Les nouvelles ouvertures de tickets sont de nouveau disponibles.",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="ticket_add", description="Ajoute un membre au ticket actuel")
     @app_commands.describe(membre="Le membre à ajouter au ticket")
     async def ticket_add(self, interaction: discord.Interaction, membre: discord.Member) -> None:
