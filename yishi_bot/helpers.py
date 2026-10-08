@@ -101,6 +101,7 @@ def default_config() -> dict[str, Any]:
         "auto_level_message_enabled": True,
         "auto_sales_rules_enabled": True,
         "weekly_community_messages_enabled": True,
+        "automatic_messages_paused": False,
         "daily_level_message": "",
         "last_invite_leaderboard_day": None,
         "last_weekly_invite_final_key": None,

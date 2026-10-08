@@ -3060,6 +3060,8 @@ class YishiBot(commands.Bot):
 
         current_week_key = now_paris.strftime("%G-W%V")
         for guild in self.guilds:
+            if self.get_guild_config(guild.id).get("automatic_messages_paused", False):
+                continue
             store = self.get_promo_store(guild.id)
             if store.get("last_auto_post_week") == current_week_key:
                 continue
@@ -3119,7 +3121,7 @@ class YishiBot(commands.Bot):
         week_key = now_paris.strftime("%G-W%V")
         for guild in self.guilds:
             config = self.get_guild_config(guild.id)
-            if not config.get("weekly_community_messages_enabled", True):
+            if config.get("automatic_messages_paused", False) or not config.get("weekly_community_messages_enabled", True):
                 continue
             channel = self.get_announcements_channel(guild)
             if channel is None:
@@ -3184,6 +3186,8 @@ class YishiBot(commands.Bot):
         week_key = now_paris.strftime("%G-W%V")
         for guild in self.guilds:
             config = self.get_guild_config(guild.id)
+            if config.get("automatic_messages_paused", False):
+                continue
             try:
                 channel = await self.ensure_invite_leaderboard_channel(guild)
             except (discord.Forbidden, discord.HTTPException):
@@ -3412,6 +3416,8 @@ class YishiBot(commands.Bot):
 
         for guild in self.guilds:
             config = self.get_guild_config(guild.id)
+            if config.get("automatic_messages_paused", False):
+                continue
 
             if config.get("auto_level_message_enabled", True):
                 level_channel = guild.get_channel(self.get_daily_level_channel_id(guild.id))

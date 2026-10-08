@@ -48,6 +48,46 @@ class ConfigurationCog(commands.Cog):
     def __init__(self, bot: YishiBot) -> None:
         self.bot = bot
 
+    @staticmethod
+    def is_administrator(interaction: discord.Interaction) -> bool:
+        return isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator
+
+    @app_commands.command(name="messages_auto_pause", description="Met en pause les publications automatiques du bot")
+    @app_commands.default_permissions(administrator=True)
+    async def messages_auto_pause(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or not self.is_administrator(interaction):
+            await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
+            return
+
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if config.get("automatic_messages_paused", False):
+            await interaction.response.send_message("Les publications automatiques sont déjà en pause.", ephemeral=True)
+            return
+
+        config["automatic_messages_paused"] = True
+        self.bot.save_config()
+        await interaction.response.send_message(
+            "⏸️ Les publications automatiques sont en pause : annonces, promotions, Top invitations et rappels programmés. "
+            "Les giveaways, tickets et autres systèmes restent actifs.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="messages_auto_reprendre", description="Réactive les publications automatiques du bot")
+    @app_commands.default_permissions(administrator=True)
+    async def messages_auto_reprendre(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or not self.is_administrator(interaction):
+            await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
+            return
+
+        config = self.bot.get_guild_config(interaction.guild.id)
+        if not config.get("automatic_messages_paused", False):
+            await interaction.response.send_message("Les publications automatiques sont déjà actives.", ephemeral=True)
+            return
+
+        config["automatic_messages_paused"] = False
+        self.bot.save_config()
+        await interaction.response.send_message("▶️ Les publications automatiques sont de nouveau actives.", ephemeral=True)
+
     def can_manage_role(self, guild: discord.Guild, role: discord.Role) -> bool:
         me = guild.me
         if me is None:
