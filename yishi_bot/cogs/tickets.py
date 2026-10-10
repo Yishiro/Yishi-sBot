@@ -83,7 +83,6 @@ class TicketsCog(commands.Cog):
         return isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator
 
     @app_commands.command(name="tickets_fermer", description="Bloque temporairement les nouvelles ouvertures de tickets")
-    @app_commands.default_permissions(administrator=True)
     async def tickets_fermer(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or not self.is_administrator(interaction):
             await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
@@ -102,7 +101,6 @@ class TicketsCog(commands.Cog):
         )
 
     @app_commands.command(name="tickets_ouvrir", description="Réouvre les nouvelles demandes de tickets")
-    @app_commands.default_permissions(administrator=True)
     async def tickets_ouvrir(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or not self.is_administrator(interaction):
             await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
@@ -122,7 +120,6 @@ class TicketsCog(commands.Cog):
 
     @app_commands.command(name="tickets_close_vider", description="Supprime tous les tickets présents dans la catégorie Ticket-Close")
     @app_commands.describe(confirmation="Choisis SUPPRIMER pour confirmer cette action irréversible")
-    @app_commands.default_permissions(administrator=True)
     async def tickets_close_vider(
         self,
         interaction: discord.Interaction,

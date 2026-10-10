@@ -53,7 +53,6 @@ class ConfigurationCog(commands.Cog):
         return isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.administrator
 
     @app_commands.command(name="messages_auto_pause", description="Met en pause les publications automatiques du bot")
-    @app_commands.default_permissions(administrator=True)
     async def messages_auto_pause(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or not self.is_administrator(interaction):
             await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
@@ -73,7 +72,6 @@ class ConfigurationCog(commands.Cog):
         )
 
     @app_commands.command(name="messages_auto_reprendre", description="Réactive les publications automatiques du bot")
-    @app_commands.default_permissions(administrator=True)
     async def messages_auto_reprendre(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or not self.is_administrator(interaction):
             await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
