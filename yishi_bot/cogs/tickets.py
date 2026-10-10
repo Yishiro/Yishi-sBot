@@ -120,6 +120,49 @@ class TicketsCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(name="tickets_close_vider", description="Supprime tous les tickets présents dans la catégorie Ticket-Close")
+    @app_commands.describe(confirmation="Choisis SUPPRIMER pour confirmer cette action irréversible")
+    @app_commands.default_permissions(administrator=True)
+    async def tickets_close_vider(
+        self,
+        interaction: discord.Interaction,
+        confirmation: Literal["SUPPRIMER"],
+    ) -> None:
+        if interaction.guild is None or not self.is_administrator(interaction):
+            await interaction.response.send_message("Commande réservée aux administrateurs.", ephemeral=True)
+            return
+
+        config = self.bot.get_guild_config(interaction.guild.id)
+        archive_category = interaction.guild.get_channel(config.get("archive_category_id"))
+        if not isinstance(archive_category, discord.CategoryChannel):
+            await interaction.response.send_message("La catégorie Ticket-Close est introuvable ou mal configurée.", ephemeral=True)
+            return
+
+        channels = list(archive_category.text_channels)
+        if not channels:
+            await interaction.response.send_message("La catégorie Ticket-Close ne contient aucun ticket à supprimer.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        deleted_ids: set[int] = set()
+        failed_channels: list[str] = []
+        for channel in channels:
+            try:
+                await channel.delete(reason=f"Purge Ticket-Close demandée par {interaction.user}")
+                deleted_ids.add(channel.id)
+            except discord.HTTPException:
+                failed_channels.append(channel.name)
+
+        ticket_channels = self.bot.get_ticket_store(interaction.guild.id)["channels"]
+        for channel_id in deleted_ids:
+            ticket_channels.pop(str(channel_id), None)
+        self.bot.save_tickets()
+
+        result = f"🗑️ **{len(deleted_ids)}** ticket(s) fermé(s) ont été supprimés définitivement."
+        if failed_channels:
+            result += f" Impossible de supprimer : {', '.join(failed_channels)}."
+        await interaction.followup.send(result, ephemeral=True)
+
     @app_commands.command(name="ticket_add", description="Ajoute un membre au ticket actuel")
     @app_commands.describe(membre="Le membre à ajouter au ticket")
     async def ticket_add(self, interaction: discord.Interaction, membre: discord.Member) -> None:
